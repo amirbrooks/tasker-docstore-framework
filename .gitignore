@@ -4,3 +4,9 @@ _demo_tasker/
 exports/
 *.log
 *.tmp
+dist/
+node_modules/
+npm/node_modules/
+npm/bin/
+npm/package-lock.json
+.DS_Store

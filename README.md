@@ -56,9 +56,9 @@ Update config (agent defaults):
 ./tasker config set agent.open_only true
 ```
 
-3) Create a project:
+3) Create another project (optional):
 ```bash
-./tasker project add "Work"
+./tasker project add "Side"
 ```
 
 4) Add tasks:
