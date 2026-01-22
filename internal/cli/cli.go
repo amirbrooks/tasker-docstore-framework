@@ -287,7 +287,7 @@ Commands:
   config set <key> <value>
   project add "<name>"
   project ls
-  add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...]
+  add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...] [--desc <text>|--details <text>]
   ls [--project <name>] [--column <col>] [--status <s>] [--tag <t>] [--search <q>] [--all]
   show <selector>
   mv <selector> <column>

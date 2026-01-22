@@ -56,7 +56,7 @@ List projects.
 
 ### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--today|--tomorrow|--next-week] [--priority <p>] [--tag <t>...] [--desc <text>|--details <text>]`
 Create a task.
-`--details` is an alias for `--desc`.
+`--details` is an alias for `--desc`. When `--format telegram` is set, `add` prints a lean confirmation line suitable for chat.
 
 Columns: `inbox|todo|doing|blocked|done|archive`
 
