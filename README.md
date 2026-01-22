@@ -66,9 +66,28 @@ Optional onboarding:
 ./tasker board --project Work --ascii
 ```
 
+8) Week view:
+```bash
+./tasker week --project Work --days 7
+```
+
+Optional agent defaults (`<root>/config.json`):
+```json
+{
+  "agent": {
+    "default_project": "work",
+    "default_view": "today",
+    "week_days": 7,
+    "open_only": true,
+    "require_explicit": false
+  }
+}
+```
+
 ## Codex / agent usage
 
 - Natural language: “tasks today for Work” → `tasker tasks --project Work`
+- Natural language: “what’s our week looking like?” → `tasker week --project Work`
 - Onboarding: `tasker onboarding`
 
 JSON/NDJSON exports write to `<root>/exports` and are not printed to stdout unless `--stdout-json` or `--stdout-ndjson` is used.

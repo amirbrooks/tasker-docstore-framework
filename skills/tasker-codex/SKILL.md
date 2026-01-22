@@ -16,8 +16,12 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
 - “tasks today”, “what’s due”, “tasks available/running”, “overdue tasks”
   - Run: `./tasker tasks [--project <name>]`
   - This shows **due today + overdue** in human format.
+- “what tasks left for today”, “what’s left today”
+  - Run: `./tasker tasks today --open [--project <name>]`
 - “list tasks”, “show tasks for <project>”
   - Run: `./tasker ls [--project <name>] [--column <col>] [--status <s>] [--tag <t>]`
+- “what’s our week looking like”, “upcoming tasks”, “agenda”
+  - Run: `./tasker week [--project <name>] [--days N]`
 - “add task …”
   - Run: `./tasker add "<title>" --project <name> [--column <col>] [--due <YYYY-MM-DD>] [--priority <p>] [--tag <t>]`
 - “mark done”, “complete task <id>”
@@ -37,3 +41,6 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
 - Prefer human output only. Do not print raw JSON to the Codex interface.
 - If a user explicitly asks for JSON, run with `--json` (or `--ndjson`) so the CLI writes to `<root>/exports`, then report the export path.
 - Summarize key results in plain text even when exporting JSON.
+
+## Agent activation (optional config)
+If `<root>/config.json` has `agent.require_explicit: true`, only act when the user explicitly uses `/task` or “tasker”. Otherwise, ask them to confirm running tasker commands.

@@ -13,6 +13,7 @@
 - `./tasker init` creates a root store (default `~/.tasker` or `TASKER_ROOT`).
 - `./tasker ls --project Work` or `./tasker board --project Work --ascii` are quick smoke checks.
 - `./tasker tasks --project Work` shows due today + overdue tasks.
+- `./tasker week --project Work --days 7` shows upcoming tasks + overdue.
 - `go test ./...` runs Go package checks (no test files currently, but compiles packages).
 
 ## Coding Style & Naming Conventions

@@ -34,8 +34,9 @@ type Workspace struct {
 }
 
 type Config struct {
-	Schema  int         `json:"schema"`
-	Columns []ColumnDef `json:"columns"`
+	Schema  int          `json:"schema"`
+	Columns []ColumnDef  `json:"columns"`
+	Agent   *AgentConfig `json:"agent,omitempty"`
 }
 
 type ColumnDef struct {
@@ -43,6 +44,14 @@ type ColumnDef struct {
 	Name   string `json:"name"`
 	Dir    string `json:"dir"`
 	Status string `json:"status"` // open|doing|blocked|done|archived
+}
+
+type AgentConfig struct {
+	RequireExplicit bool   `json:"require_explicit"`
+	DefaultProject  string `json:"default_project"`
+	DefaultView     string `json:"default_view"` // today|week
+	WeekDays        int    `json:"week_days"`
+	OpenOnly        bool   `json:"open_only"`
 }
 
 type Project struct {
@@ -164,6 +173,10 @@ func (w *Workspace) loadOrDefaultConfig() error {
 	}
 	w.cfg = cfg
 	return nil
+}
+
+func (w *Workspace) Config() Config {
+	return w.cfg
 }
 
 func (w *Workspace) CreateProject(name string) (*Project, error) {
@@ -499,7 +512,7 @@ func (w *Workspace) RenderBoard(project string, ascii bool) (string, error) {
 	return b.String(), nil
 }
 
-func (w *Workspace) RenderToday(project string) (string, error) {
+func (w *Workspace) RenderToday(project string, openOnly bool) (string, error) {
 	filter := ListFilter{Project: project, All: false}
 	tasks, err := w.ListTasks(filter)
 	if err != nil {
@@ -509,6 +522,9 @@ func (w *Workspace) RenderToday(project string) (string, error) {
 	var dueToday []Task
 	var overdue []Task
 	for _, t := range tasks {
+		if openOnly && !isOpenStatus(t.Status) {
+			continue
+		}
 		dueDate, ok := parseDueDate(t.Due)
 		if !ok {
 			continue
@@ -541,6 +557,91 @@ func (w *Workspace) RenderToday(project string) (string, error) {
 		b.WriteString("\n")
 	}
 	return b.String(), nil
+}
+
+func (w *Workspace) RenderAgenda(project string, days int, openOnly bool) (string, error) {
+	filter := ListFilter{Project: project, All: false}
+	tasks, err := w.ListTasks(filter)
+	if err != nil {
+		return "", err
+	}
+	if days <= 0 {
+		days = 7
+	}
+	start := timeNow().UTC()
+	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, days-1)
+
+	var overdue []Task
+	byDate := map[string][]Task{}
+	for _, t := range tasks {
+		if openOnly && !isOpenStatus(t.Status) {
+			continue
+		}
+		dueDate, ok := parseDueDate(t.Due)
+		if !ok {
+			continue
+		}
+		d := time.Date(dueDate.Year(), dueDate.Month(), dueDate.Day(), 0, 0, 0, 0, time.UTC)
+		if d.Before(start) {
+			overdue = append(overdue, t)
+			continue
+		}
+		if d.After(end) {
+			continue
+		}
+		key := d.Format("2006-01-02")
+		byDate[key] = append(byDate[key], t)
+	}
+
+	var b strings.Builder
+	rangeLabel := fmt.Sprintf("%s → %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
+	b.WriteString(fmt.Sprintf("Week (%d days) — %s — due %d, overdue %d\n\n", days, rangeLabel, lenByDate(byDate), len(overdue)))
+
+	b.WriteString("Overdue:\n")
+	if len(overdue) == 0 {
+		b.WriteString("  (none)\n\n")
+	} else {
+		sort.Slice(overdue, func(i, j int) bool { return overdue[i].Due < overdue[j].Due })
+		for _, t := range overdue {
+			b.WriteString(fmt.Sprintf("  %s %s (%s) %s/%s %s\n", t.ID, t.PriorityAbbrev(), t.Due, t.Project, t.Column, t.Title))
+		}
+		b.WriteString("\n")
+	}
+
+	for i := 0; i < days; i++ {
+		d := start.AddDate(0, 0, i)
+		key := d.Format("2006-01-02")
+		label := fmt.Sprintf("%s (%s)", key, d.Weekday().String()[:3])
+		b.WriteString(label + ":\n")
+		items := byDate[key]
+		if len(items) == 0 {
+			b.WriteString("  (none)\n\n")
+			continue
+		}
+		for _, t := range items {
+			b.WriteString(fmt.Sprintf("  %s %s %s/%s %s\n", t.ID, t.PriorityAbbrev(), t.Project, t.Column, t.Title))
+		}
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
+func lenByDate(byDate map[string][]Task) int {
+	n := 0
+	for _, list := range byDate {
+		n += len(list)
+	}
+	return n
+}
+
+func isOpenStatus(status string) bool {
+	switch status {
+	case "open", "doing", "blocked":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseDueDate(due string) (time.Time, bool) {

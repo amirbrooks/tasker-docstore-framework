@@ -63,3 +63,4 @@ Restart the relevant processes/sessions after enabling plugins/skills.
 - `/task add "Draft proposal" --project Work --column todo`
 - `/task done tsk_01J4F3N8`
 - `/task tasks --project Work` (due today + overdue)
+- `/task week --project Work --days 7` (upcoming + overdue)

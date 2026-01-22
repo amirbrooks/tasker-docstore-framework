@@ -66,6 +66,46 @@ func reorderFlags(args []string, takesValue map[string]bool) []string {
 	return append(flags, rest...)
 }
 
+func agentConfig(ws *store.Workspace) *store.AgentConfig {
+	cfg := ws.Config()
+	if cfg.Agent == nil {
+		return nil
+	}
+	return cfg.Agent
+}
+
+func resolveProject(ws *store.Workspace, project string) string {
+	if strings.TrimSpace(project) != "" {
+		return strings.TrimSpace(project)
+	}
+	if ac := agentConfig(ws); ac != nil && strings.TrimSpace(ac.DefaultProject) != "" {
+		return strings.TrimSpace(ac.DefaultProject)
+	}
+	return ""
+}
+
+func resolveOpenOnly(ws *store.Workspace, openFlag bool, allFlag bool) bool {
+	if allFlag {
+		return false
+	}
+	if openFlag {
+		return true
+	}
+	if ac := agentConfig(ws); ac != nil && ac.OpenOnly {
+		return true
+	}
+	return false
+}
+
+func resolveWeekDays(ws *store.Workspace, daysFlag int) int {
+	if daysFlag > 0 {
+		return daysFlag
+	}
+	if ac := agentConfig(ws); ac != nil && ac.WeekDays > 0 {
+		return ac.WeekDays
+	}
+	return 7
+}
 func Run(args []string) int {
 	gf, rest, err := extractGlobalFlags(args)
 	if err != nil {
@@ -111,8 +151,12 @@ func Run(args []string) int {
 		return cmdNote(ws, gf, cmdArgs)
 	case "board":
 		return cmdBoard(ws, gf, cmdArgs)
-	case "today", "tasks", "summary":
+	case "today":
 		return cmdToday(ws, gf, cmdArgs)
+	case "tasks", "summary":
+		return cmdTasks(ws, gf, cmdArgs)
+	case "week", "agenda", "upcoming":
+		return cmdAgenda(ws, gf, cmdArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", cmd)
 		printHelp()
@@ -150,9 +194,12 @@ Commands:
   done <id-or-prefix>
   note add <id-or-prefix> "<text>"
   board --project <name>
-  today [--project <name>]
-  tasks [--project <name>]   (alias for today)
-  summary [--project <name>] (alias for today)
+  today [--project <name>] [--open|--all]
+  tasks [today|week] [--project <name>] [--days N] [--open|--all]
+  summary [today|week] [--project <name>] [--days N] [--open|--all]
+  week [--project <name>] [--days N] [--open|--all]
+  agenda [--project <name>] [--days N] [--open|--all]
+  upcoming [--project <name>] [--days N] [--open|--all]
 
 Columns:
   inbox|todo|doing|blocked|done|archive
@@ -247,6 +294,7 @@ func cmdOnboarding(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	fmt.Println("  tasker board --project Work --ascii")
 	fmt.Println()
 	fmt.Println("Tip: Use --root or TASKER_ROOT to point to a specific store.")
+	fmt.Println("Optional: Add agent defaults in config.json (default project/view, open-only).")
 	return ExitOK
 }
 
@@ -717,10 +765,14 @@ func cmdBoard(ws *store.Workspace, gf GlobalFlags, args []string) int {
 func cmdToday(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	args = reorderFlags(args, map[string]bool{
 		"--project": true,
+		"--open":    false,
+		"--all":     false,
 	})
 	fs := flag.NewFlagSet("today", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	project := fs.String("project", "", "Project name/slug")
+	openOnly := fs.Bool("open", false, "Only open/doing/blocked")
+	all := fs.Bool("all", false, "Include done/archived")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -733,9 +785,106 @@ func cmdToday(ws *store.Workspace, gf GlobalFlags, args []string) int {
 			return ExitUsage
 		}
 	}
-	out, err := ws.RenderToday(strings.TrimSpace(*project))
+	projectName := resolveProject(ws, *project)
+	open := resolveOpenOnly(ws, *openOnly, *all)
+	out, err := ws.RenderToday(projectName, open)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "today:", err)
+		return ExitInternal
+	}
+	fmt.Println(out)
+	return ExitOK
+}
+
+func cmdAgenda(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--project": true,
+		"--days":    true,
+		"--open":    false,
+		"--all":     false,
+	})
+	fs := flag.NewFlagSet("week", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug")
+	days := fs.Int("days", 0, "Days ahead (default 7)")
+	openOnly := fs.Bool("open", false, "Only open/doing/blocked")
+	all := fs.Bool("all", false, "Include done/archived")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	if len(rest) > 0 {
+		if len(rest) == 1 && (rest[0] == "week" || rest[0] == "this-week" || rest[0] == "next") {
+			// allow "week" tokens
+		} else {
+			fmt.Fprintln(os.Stderr, "Usage: tasker week [--project <name>] [--days N]")
+			return ExitUsage
+		}
+	}
+	projectName := resolveProject(ws, *project)
+	open := resolveOpenOnly(ws, *openOnly, *all)
+	window := resolveWeekDays(ws, *days)
+	out, err := ws.RenderAgenda(projectName, window, open)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "week:", err)
+		return ExitInternal
+	}
+	fmt.Println(out)
+	return ExitOK
+}
+
+func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--project": true,
+		"--days":    true,
+		"--open":    false,
+		"--all":     false,
+	})
+	fs := flag.NewFlagSet("tasks", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug")
+	days := fs.Int("days", 0, "Days ahead (for week/agenda)")
+	openOnly := fs.Bool("open", false, "Only open/doing/blocked")
+	all := fs.Bool("all", false, "Include done/archived")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	mode := ""
+	if len(rest) > 0 {
+		token := rest[0]
+		switch token {
+		case "today", "now":
+			mode = "today"
+		case "week", "this-week", "next", "upcoming", "agenda":
+			mode = "week"
+		default:
+			fmt.Fprintln(os.Stderr, "Usage: tasker tasks [today|week] [--project <name>] [--days N]")
+			return ExitUsage
+		}
+	}
+	if mode == "" {
+		if ac := agentConfig(ws); ac != nil && strings.ToLower(ac.DefaultView) == "week" {
+			mode = "week"
+		} else {
+			mode = "today"
+		}
+	}
+	projectName := resolveProject(ws, *project)
+	open := resolveOpenOnly(ws, *openOnly, *all)
+	if mode == "week" {
+		window := resolveWeekDays(ws, *days)
+		out, err := ws.RenderAgenda(projectName, window, open)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tasks:", err)
+			return ExitInternal
+		}
+		fmt.Println(out)
+		return ExitOK
+	}
+	out, err := ws.RenderToday(projectName, open)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "tasks:", err)
 		return ExitInternal
 	}
 	fmt.Println(out)

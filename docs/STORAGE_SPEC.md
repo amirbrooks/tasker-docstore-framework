@@ -50,6 +50,20 @@ The canonical column IDs are:
 
 Columns are configured in `<root>/config.json` (generated on `tasker init`).
 
+Optional agent config can be added to `<root>/config.json`:
+
+```json
+{
+  "agent": {
+    "require_explicit": false,
+    "default_project": "work",
+    "default_view": "today",
+    "week_days": 7,
+    "open_only": true
+  }
+}
+```
+
 ## Tasks
 
 Each task is a Markdown file, named:

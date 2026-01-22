@@ -62,7 +62,22 @@ Alias for `today` (due today + overdue).
 ### `tasker summary [--project <name>]`
 Alias for `today` (due today + overdue).
 
-`today`/`tasks` accept an optional trailing `today` or `now` token (e.g., `tasker tasks today --project Work`).
+`today`/`tasks` accept an optional trailing `today`/`now` token (e.g., `tasker tasks today --project Work`).
+
+### `tasker week [--project <name>] [--days N]`
+Show upcoming tasks for the next N days (default 7), plus overdue.
+
+### `tasker agenda [--project <name>] [--days N]`
+Alias for `week`.
+
+### `tasker upcoming [--project <name>] [--days N]`
+Alias for `week`.
+
+`tasks` also accepts `week`/`this-week`/`agenda` tokens (e.g., `tasker tasks week --project Work`).
+
+### Flags for today/week/tasks
+- `--open`: only open/doing/blocked tasks
+- `--all`: include done/archived (overrides `--open`)
 
 ## Exit codes
 

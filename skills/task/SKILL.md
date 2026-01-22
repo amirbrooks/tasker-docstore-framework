@@ -18,6 +18,7 @@ Examples:
 - `/task ls --project Work`
 - `/task board --project Work --ascii`
 - `/task tasks --project Work`   # due today + overdue
+- `/task week --project Work --days 7`
 - `/task done tsk_01J4F3N8`
 
 Output modes:
