@@ -14,7 +14,7 @@ organized in a **filesystem Kanban** layout (projects + columns).
 ## 30‑second quickstart
 
 ```bash
-npm install -g @amirbrooks/tasker-docstore
+# after install
 tasker init --project "Work"
 tasker add "First task" --project Work --today
 tasker tasks --project Work
@@ -22,7 +22,13 @@ tasker tasks --project Work
 
 It is designed to integrate with **Clawdbot** via:
 - a plugin tool (`tasker_cmd`) that safely spawns the `tasker` CLI with `shell:false`
-- a skill (`/task`) that uses `command-dispatch: tool` to bypass the model (low-bloat)
+- a skill profile that maps natural language or `/task` to `tasker_cmd`
+  - Natural language: `skills/task/`
+  - Slash-only (low-bloat): copy `skills/task-slash/` into your skills folder as `task/`
+
+Clawdbot helpers:
+- `TASKER_BIN=/path/to/tasker` (env fallback if binary is not on PATH)
+- `./scripts/install-skill.sh --profile nl|slash`
 
 ## Install
 
