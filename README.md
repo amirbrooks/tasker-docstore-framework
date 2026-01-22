@@ -135,6 +135,10 @@ See `CONTRIBUTING.md`.
 
 See `SECURITY.md` and `docs/SECURITY.md`.
 
+## Support
+
+See `SUPPORT.md`.
+
 ## License
 
 MIT (see `LICENSE`).
