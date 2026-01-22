@@ -206,7 +206,7 @@ Global flags:
   --verbose
 
 Commands:
-  init
+  init [--project <name>]
   onboarding
   config show
   project add "<name>"
@@ -311,9 +311,8 @@ func cmdOnboarding(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	fmt.Println(" ", ws.Root)
 	fmt.Println()
 	fmt.Println("Quickstart:")
-	fmt.Println("  tasker init")
-	fmt.Println("  tasker project add \"Work\"")
-	fmt.Println("  tasker add \"Draft proposal\" --project Work --column todo --due 2026-01-23 --priority high --tag client")
+	fmt.Println("  tasker init --project \"Work\"")
+	fmt.Println("  tasker add \"Draft proposal\" --project Work --column todo --today --priority high --tag client")
 	fmt.Println("  tasker tasks --project Work   # due today + overdue")
 	fmt.Println("  tasker board --project Work --ascii")
 	fmt.Println()
@@ -434,7 +433,13 @@ func cmdConfig(ws *store.Workspace, gf GlobalFlags, args []string) int {
 }
 
 func cmdInit(ws *store.Workspace, gf GlobalFlags, args []string) int {
-	if err := ws.Init(); err != nil {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Default project name (optional)")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	if err := ws.Init(strings.TrimSpace(*project)); err != nil {
 		fmt.Fprintln(os.Stderr, "init:", err)
 		return ExitInternal
 	}
@@ -532,12 +537,14 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--priority": true,
 		"--tag":      true,
 		"--desc":     true,
+		"--today":    false,
 	})
 	fs := flag.NewFlagSet("add", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	project := fs.String("project", "", "Project name/slug")
 	column := fs.String("column", "inbox", "Column id (inbox|todo|doing|blocked|done|archive)")
 	due := fs.String("due", "", "Due date (YYYY-MM-DD) or RFC3339")
+	dueToday := fs.Bool("today", false, "Shortcut: due today")
 	priority := fs.String("priority", "normal", "Priority (low|normal|high|urgent)")
 	searchTag := multiFlag{}
 	fs.Var(&searchTag, "tag", "Tag (repeatable)")
@@ -549,6 +556,13 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	if len(rest) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: tasker add \"<title>\" --project <name> [--column todo] ...")
 		return ExitUsage
+	}
+	if *dueToday && strings.TrimSpace(*due) != "" {
+		fmt.Fprintln(os.Stderr, "Usage: --today cannot be combined with --due")
+		return ExitUsage
+	}
+	if *dueToday {
+		*due = time.Now().UTC().Format("2006-01-02")
 	}
 	title := strings.Join(rest, " ")
 	input := store.AddTaskInput{

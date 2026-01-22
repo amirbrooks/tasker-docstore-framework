@@ -18,8 +18,8 @@ Flags may appear **before or after** the subcommand in v0.1.
 
 ## Commands (v0.1)
 
-### `tasker init`
-Create root config and a default `personal` project.
+### `tasker init [--project <name>]`
+Create root config and a default project (defaults to `Personal`).
 
 ### `tasker onboarding`
 Print quickstart instructions and common commands.
@@ -33,7 +33,7 @@ Create a project (slugified).
 ### `tasker project ls`
 List projects.
 
-### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...]`
+### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--today] [--priority <p>] [--tag <t>...]`
 Create a task.
 
 Columns: `inbox|todo|doing|blocked|done|archive`

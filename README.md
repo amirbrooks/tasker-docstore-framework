@@ -31,7 +31,7 @@ go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
 
 2) Initialize store (defaults to `~/.tasker`):
 ```bash
-./tasker init
+./tasker init --project "Work"
 ```
 
 Optional onboarding:
@@ -51,7 +51,7 @@ View config (human summary):
 
 4) Add tasks:
 ```bash
-./tasker add "Draft proposal" --project Work --column todo --due 2026-01-23 --priority high --tag client
+./tasker add "Draft proposal" --project Work --column todo --today --priority high --tag client
 ./tasker add "Fix auth bug" --project Work --column doing
 ```
 

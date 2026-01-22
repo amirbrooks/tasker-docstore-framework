@@ -115,7 +115,7 @@ func Open(root string) (*Workspace, error) {
 	return ws, nil
 }
 
-func (w *Workspace) Init() error {
+func (w *Workspace) Init(defaultProject string) error {
 	if err := os.MkdirAll(w.Root, 0o755); err != nil {
 		return err
 	}
@@ -127,8 +127,12 @@ func (w *Workspace) Init() error {
 		return err
 	}
 
-	// Create default personal project if none exists.
-	_, _ = w.CreateProject("Personal")
+	projectName := strings.TrimSpace(defaultProject)
+	if projectName == "" {
+		projectName = "Personal"
+	}
+	// Create default project if none exists.
+	_, _ = w.CreateProject(projectName)
 	return nil
 }
 
