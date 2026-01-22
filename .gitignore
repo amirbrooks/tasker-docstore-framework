@@ -1,0 +1,6 @@
+tasker
+_demo_tasker/
+*.skill
+exports/
+*.log
+*.tmp

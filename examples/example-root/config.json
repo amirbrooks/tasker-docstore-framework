@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "columns": [
+    {
+      "id": "inbox",
+      "name": "Inbox",
+      "dir": "00-inbox",
+      "status": "open"
+    },
+    {
+      "id": "todo",
+      "name": "To Do",
+      "dir": "01-todo",
+      "status": "open"
+    },
+    {
+      "id": "doing",
+      "name": "Doing",
+      "dir": "02-doing",
+      "status": "doing"
+    },
+    {
+      "id": "blocked",
+      "name": "Blocked",
+      "dir": "03-blocked",
+      "status": "blocked"
+    },
+    {
+      "id": "done",
+      "name": "Done",
+      "dir": "04-done",
+      "status": "done"
+    },
+    {
+      "id": "archive",
+      "name": "Archive",
+      "dir": "99-archive",
+      "status": "archived"
+    }
+  ]
+}

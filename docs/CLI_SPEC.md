@@ -1,0 +1,73 @@
+# CLI Spec — tasker docstore v0.1 (MVP)
+
+Binary: `tasker`
+
+## Global flags
+
+- `--root <path>`: store root (default: `~/.tasker` or `TASKER_ROOT`)
+- `--json`: write JSON to `<root>/exports` (no stdout JSON)
+- `--ndjson`: write NDJSON to `<root>/exports` (no stdout NDJSON)
+- `--stdout-json`: allow JSON to stdout (debug only)
+- `--stdout-ndjson`: allow NDJSON to stdout (debug only)
+- `--export-dir <path>`: override export directory
+- `--plain`: TSV output
+- `--ascii`: ASCII rendering for board output
+- `--quiet`, `--verbose`
+
+Flags may appear **before or after** the subcommand in v0.1.
+
+## Commands (v0.1)
+
+### `tasker init`
+Create root config and a default `personal` project.
+
+### `tasker onboarding`
+Print quickstart instructions and common commands.
+
+### `tasker project add "<name>"`
+Create a project (slugified).
+
+### `tasker project ls`
+List projects.
+
+### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...]`
+Create a task.
+
+Columns: `inbox|todo|doing|blocked|done|archive`
+
+### `tasker ls [--project <name>] [--column <col>] [--status <s>] [--tag <t>] [--search <q>] [--all]`
+List tasks (defaults to non-archived).
+
+### `tasker show <id-or-prefix>`
+Show a task file (frontmatter + notes).
+
+### `tasker mv <id-or-prefix> <column>`
+Move task to another column (atomic rename).
+
+### `tasker done <id-or-prefix>`
+Shortcut for `mv <id> done`.
+
+### `tasker note add <id-or-prefix> "<text>"`
+Append a note entry.
+
+### `tasker board --project <name>`
+Print project kanban board.
+
+### `tasker today [--project <name>]`
+List due today + overdue tasks.
+
+### `tasker tasks [--project <name>]`
+Alias for `today` (due today + overdue).
+
+### `tasker summary [--project <name>]`
+Alias for `today` (due today + overdue).
+
+`today`/`tasks` accept an optional trailing `today` or `now` token (e.g., `tasker tasks today --project Work`).
+
+## Exit codes
+
+- 0 success
+- 2 usage/validation error
+- 3 not found
+- 4 conflict (ambiguous prefix)
+- 10 internal error

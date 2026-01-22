@@ -1,0 +1,918 @@
+package store
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/oklog/ulid/v2"
+	"gopkg.in/yaml.v3"
+)
+
+type randReader struct{}
+
+func (randReader) Read(p []byte) (int, error) { return rand.Read(p) }
+
+var (
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("conflict")
+	ErrInvalid  = errors.New("invalid")
+	timeNow     = func() time.Time { return time.Now().UTC() }
+)
+
+type Workspace struct {
+	Root string
+	cfg  Config
+}
+
+type Config struct {
+	Schema  int         `json:"schema"`
+	Columns []ColumnDef `json:"columns"`
+}
+
+type ColumnDef struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Dir    string `json:"dir"`
+	Status string `json:"status"` // open|doing|blocked|done|archived
+}
+
+type Project struct {
+	Schema    int       `json:"schema"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type TaskMeta struct {
+	Schema      int        `yaml:"schema" json:"schema"`
+	ID          string     `yaml:"id" json:"id"`
+	Title       string     `yaml:"title" json:"title"`
+	Status      string     `yaml:"status" json:"status"`
+	Project     string     `yaml:"project" json:"project"`
+	Column      string     `yaml:"column" json:"column"`
+	Priority    string     `yaml:"priority" json:"priority"`
+	Tags        []string   `yaml:"tags" json:"tags"`
+	Due         string     `yaml:"due" json:"due"`
+	CreatedAt   *time.Time `yaml:"created_at" json:"created_at"`
+	UpdatedAt   *time.Time `yaml:"updated_at" json:"updated_at"`
+	CompletedAt *time.Time `yaml:"completed_at" json:"completed_at"`
+	ArchivedAt  *time.Time `yaml:"archived_at" json:"archived_at"`
+}
+
+type Task struct {
+	TaskMeta `json:",inline"`
+	Path     string `json:"path"`
+	Body     string `json:"-"`
+}
+
+type AddTaskInput struct {
+	Title       string
+	Project     string
+	Column      string
+	Due         string
+	Priority    string
+	Tags        []string
+	Description string
+}
+
+type ListFilter struct {
+	Project string
+	Column  string
+	Status  string
+	Tag     string
+	Search  string
+	All     bool
+}
+
+// Open opens a workspace rooted at root. It does not create files until Init is called.
+func Open(root string) (*Workspace, error) {
+	ws := &Workspace{Root: expandHome(root)}
+	if err := ws.loadOrDefaultConfig(); err != nil {
+		// If config doesn't exist, that's ok until Init.
+	}
+	return ws, nil
+}
+
+func (w *Workspace) Init() error {
+	if err := os.MkdirAll(w.Root, 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(w.Root, "projects"), 0o755); err != nil {
+		return err
+	}
+
+	if err := w.ensureConfig(); err != nil {
+		return err
+	}
+
+	// Create default personal project if none exists.
+	_, _ = w.CreateProject("Personal")
+	return nil
+}
+
+func (w *Workspace) ensureConfig() error {
+	cfgPath := filepath.Join(w.Root, "config.json")
+	if _, err := os.Stat(cfgPath); err == nil {
+		return w.loadOrDefaultConfig()
+	}
+	w.cfg = defaultConfig()
+	b, _ := json.MarshalIndent(w.cfg, "", "  ")
+	return atomicWriteFile(cfgPath, b, 0o644)
+}
+
+func defaultConfig() Config {
+	return Config{
+		Schema: 1,
+		Columns: []ColumnDef{
+			{ID: "inbox", Name: "Inbox", Dir: "00-inbox", Status: "open"},
+			{ID: "todo", Name: "To Do", Dir: "01-todo", Status: "open"},
+			{ID: "doing", Name: "Doing", Dir: "02-doing", Status: "doing"},
+			{ID: "blocked", Name: "Blocked", Dir: "03-blocked", Status: "blocked"},
+			{ID: "done", Name: "Done", Dir: "04-done", Status: "done"},
+			{ID: "archive", Name: "Archive", Dir: "99-archive", Status: "archived"},
+		},
+	}
+}
+
+func (w *Workspace) loadOrDefaultConfig() error {
+	cfgPath := filepath.Join(w.Root, "config.json")
+	b, err := os.ReadFile(cfgPath)
+	if err != nil {
+		w.cfg = defaultConfig()
+		return err
+	}
+	var cfg Config
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return err
+	}
+	if cfg.Schema == 0 {
+		cfg.Schema = 1
+	}
+	if len(cfg.Columns) == 0 {
+		cfg.Columns = defaultConfig().Columns
+	}
+	w.cfg = cfg
+	return nil
+}
+
+func (w *Workspace) CreateProject(name string) (*Project, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: project name is required", ErrInvalid)
+	}
+	slug := slugify(name)
+
+	projDir := filepath.Join(w.Root, "projects", slug)
+	columnsDir := filepath.Join(projDir, "columns")
+
+	if err := os.MkdirAll(columnsDir, 0o755); err != nil {
+		return nil, err
+	}
+	// Ensure column dirs
+	for _, c := range w.cfg.Columns {
+		if err := os.MkdirAll(filepath.Join(columnsDir, c.Dir), 0o755); err != nil {
+			return nil, err
+		}
+	}
+
+	now := timeNow()
+	p := &Project{
+		Schema:    1,
+		ID:        "prj_" + newULID(),
+		Name:      name,
+		Slug:      slug,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	metaPath := filepath.Join(projDir, "project.json")
+	// If exists, do not overwrite; just return existing.
+	if _, err := os.Stat(metaPath); err == nil {
+		existing, e2 := readProject(metaPath)
+		if e2 == nil {
+			return existing, nil
+		}
+	}
+	b, _ := json.MarshalIndent(p, "", "  ")
+	if err := atomicWriteFile(metaPath, b, 0o644); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func readProject(path string) (*Project, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var p Project
+	if err := json.Unmarshal(b, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (w *Workspace) ListProjects() ([]Project, error) {
+	root := filepath.Join(w.Root, "projects")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []Project{}, nil
+		}
+		return nil, err
+	}
+	var out []Project
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		meta := filepath.Join(root, e.Name(), "project.json")
+		p, err := readProject(meta)
+		if err != nil {
+			// ignore broken project metadata
+			continue
+		}
+		out = append(out, *p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	return out, nil
+}
+
+func (w *Workspace) AddTask(in AddTaskInput) (*Task, error) {
+	if strings.TrimSpace(in.Title) == "" {
+		return nil, fmt.Errorf("%w: title is required", ErrInvalid)
+	}
+	projectName := strings.TrimSpace(in.Project)
+	if projectName == "" {
+		projectName = "Personal"
+	}
+	projectSlug := slugify(projectName)
+	_, err := w.CreateProject(projectName) // idempotent create (name preserved)
+	if err != nil {
+		return nil, err
+	}
+
+	colID := strings.TrimSpace(in.Column)
+	if colID == "" {
+		colID = "inbox"
+	}
+	col, ok := w.columnByID(colID)
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown column %q", ErrInvalid, colID)
+	}
+
+	now := timeNow()
+	id := "tsk_" + newULID()
+	meta := TaskMeta{
+		Schema:    1,
+		ID:        id,
+		Title:     strings.TrimSpace(in.Title),
+		Status:    col.Status,
+		Project:   projectSlug,
+		Column:    colID,
+		Priority:  normalizePriority(in.Priority),
+		Tags:      dedupeStrings(in.Tags),
+		Due:       strings.TrimSpace(in.Due),
+		CreatedAt: &now,
+		UpdatedAt: &now,
+	}
+	body := ""
+	if strings.TrimSpace(in.Description) != "" {
+		body = "## Notes\n\n" + strings.TrimSpace(in.Description) + "\n"
+	}
+
+	filename := fmt.Sprintf("%s__%s.md", id, slugify(meta.Title))
+	path := filepath.Join(w.projectColumnsDir(projectSlug), col.Dir, filename)
+
+	task := &Task{TaskMeta: meta, Path: path, Body: body}
+	if err := writeTaskFile(task); err != nil {
+		return nil, err
+	}
+	return task, nil
+}
+
+func (w *Workspace) GetTaskByPrefix(prefix string) (*Task, error) {
+	candidates, err := w.findTasksByPrefix(prefix)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, ErrNotFound
+	}
+	if len(candidates) > 1 {
+		return nil, ErrConflict
+	}
+	t, err := readTaskFile(candidates[0])
+	if err != nil {
+		return nil, err
+	}
+	w.reconcileTaskFromPath(t)
+	return t, nil
+}
+
+func (w *Workspace) MoveTask(prefix string, toColumnID string) (*Task, error) {
+	task, err := w.GetTaskByPrefix(prefix)
+	if err != nil {
+		return nil, err
+	}
+	w.reconcileTaskFromPath(task)
+	col, ok := w.columnByID(toColumnID)
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown column %q", ErrInvalid, toColumnID)
+	}
+	projectSlug := strings.TrimSpace(task.Project)
+	if projectSlug == "" {
+		return nil, fmt.Errorf("%w: task project unknown", ErrInvalid)
+	}
+
+	// Move file to new directory
+	oldPath := task.Path
+	newDir := filepath.Join(w.projectColumnsDir(projectSlug), col.Dir)
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		return nil, err
+	}
+	newPath := filepath.Join(newDir, filepath.Base(oldPath))
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return nil, err
+	}
+
+	now := timeNow()
+	task.Path = newPath
+	task.Column = toColumnID
+	task.Status = col.Status
+	task.UpdatedAt = &now
+	if col.Status == "done" {
+		task.CompletedAt = &now
+	} else {
+		task.CompletedAt = nil
+	}
+	if col.Status == "archived" {
+		task.ArchivedAt = &now
+	} else {
+		task.ArchivedAt = nil
+	}
+	if err := writeTaskFile(task); err != nil {
+		return nil, err
+	}
+	return task, nil
+}
+
+func (w *Workspace) AddNote(prefix string, note string) (*Task, error) {
+	task, err := w.GetTaskByPrefix(prefix)
+	if err != nil {
+		return nil, err
+	}
+	now := timeNow()
+	task.UpdatedAt = &now
+	entry := fmt.Sprintf("- %s — %s\n", now.Format(time.RFC3339), strings.TrimSpace(note))
+	if task.Body == "" {
+		task.Body = "## Notes\n\n" + entry
+	} else {
+		task.Body = strings.TrimRight(task.Body, "\n") + "\n" + entry
+	}
+	if err := writeTaskFile(task); err != nil {
+		return nil, err
+	}
+	return task, nil
+}
+
+func (w *Workspace) ListTasks(f ListFilter) ([]Task, error) {
+	var projects []string
+	if strings.TrimSpace(f.Project) != "" {
+		projects = []string{slugifyOrDefault(f.Project, f.Project)}
+	} else {
+		ps, err := w.ListProjects()
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range ps {
+			projects = append(projects, p.Slug)
+		}
+	}
+	var out []Task
+	for _, prj := range projects {
+		cols := w.cfg.Columns
+		for _, c := range cols {
+			if !f.All && c.ID == "archive" {
+				continue
+			}
+			if f.Column != "" && c.ID != f.Column {
+				continue
+			}
+			dir := filepath.Join(w.projectColumnsDir(prj), c.Dir)
+			_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil || d == nil {
+					return nil
+				}
+				if d.IsDir() {
+					return nil
+				}
+				if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+					return nil
+				}
+				t, err := readTaskFile(path)
+				if err != nil {
+					return nil
+				}
+				// reconcile path -> column/status
+				t.Project = prj
+				t.Column = c.ID
+				t.Status = c.Status
+
+				if f.Status != "" && t.Status != f.Status {
+					return nil
+				}
+				if f.Tag != "" && !containsString(t.Tags, f.Tag) {
+					return nil
+				}
+				if f.Search != "" {
+					q := strings.ToLower(f.Search)
+					if !strings.Contains(strings.ToLower(t.Title), q) && !strings.Contains(strings.ToLower(t.descriptionText()), q) {
+						return nil
+					}
+				}
+				out = append(out, *t)
+				return nil
+			})
+		}
+	}
+	// simple sort: due then updated
+	sort.Slice(out, func(i, j int) bool {
+		di := out[i].Due
+		dj := out[j].Due
+		if di != "" && dj != "" && di != dj {
+			return di < dj
+		}
+		if out[i].UpdatedAt != nil && out[j].UpdatedAt != nil {
+			return out[i].UpdatedAt.After(*out[j].UpdatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+func (w *Workspace) RenderBoard(project string, ascii bool) (string, error) {
+	projectSlug := slugifyOrDefault(project, project)
+	// Collect tasks per column.
+	type card struct{ ID, Title, Pri string }
+	colCards := map[string][]card{}
+	for _, c := range w.cfg.Columns {
+		dir := filepath.Join(w.projectColumnsDir(projectSlug), c.Dir)
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+				continue
+			}
+			t, err := readTaskFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				continue
+			}
+			colCards[c.ID] = append(colCards[c.ID], card{ID: t.IDShort(8), Title: truncate(t.Title, 18, ascii), Pri: t.PriorityAbbrev()})
+		}
+	}
+
+	// Simple board rendering (no box drawing; keep it lean).
+	var b strings.Builder
+	b.WriteString(projectSlug + "\n\n")
+	for _, c := range w.cfg.Columns {
+		b.WriteString("## " + c.Name + "\n")
+		cards := colCards[c.ID]
+		if len(cards) == 0 {
+			b.WriteString("  (empty)\n\n")
+			continue
+		}
+		for _, cd := range cards {
+			b.WriteString(fmt.Sprintf("  %s %s %s\n", cd.ID, cd.Pri, cd.Title))
+		}
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
+func (w *Workspace) RenderToday(project string) (string, error) {
+	filter := ListFilter{Project: project, All: false}
+	tasks, err := w.ListTasks(filter)
+	if err != nil {
+		return "", err
+	}
+	today := timeNow().Format("2006-01-02")
+	var dueToday []Task
+	var overdue []Task
+	for _, t := range tasks {
+		dueDate, ok := parseDueDate(t.Due)
+		if !ok {
+			continue
+		}
+		d := dueDate.In(time.UTC).Format("2006-01-02")
+		if d == today {
+			dueToday = append(dueToday, t)
+		} else if d < today {
+			overdue = append(overdue, t)
+		}
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Today (%s) — due %d, overdue %d\n\n", today, len(dueToday), len(overdue)))
+	b.WriteString("Due today:\n")
+	if len(dueToday) == 0 {
+		b.WriteString("  (none)\n\n")
+	} else {
+		for _, t := range dueToday {
+			b.WriteString(fmt.Sprintf("  %s %s %s/%s %s\n", t.ID, t.PriorityAbbrev(), t.Project, t.Column, t.Title))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("Overdue:\n")
+	if len(overdue) == 0 {
+		b.WriteString("  (none)\n\n")
+	} else {
+		for _, t := range overdue {
+			b.WriteString(fmt.Sprintf("  %s %s (%s) %s/%s %s\n", t.ID, t.PriorityAbbrev(), t.Due, t.Project, t.Column, t.Title))
+		}
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
+func parseDueDate(due string) (time.Time, bool) {
+	due = strings.TrimSpace(due)
+	if due == "" {
+		return time.Time{}, false
+	}
+	if len(due) >= 10 {
+		datePart := due[:10]
+		if t, err := time.Parse("2006-01-02", datePart); err == nil {
+			return t, true
+		}
+	}
+	if t, err := time.Parse(time.RFC3339, due); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
+func (t *Task) descriptionText() string {
+	// In this MVP, body is treated as description text for searching.
+	return t.Body
+}
+
+func (t *Task) IDShort(n int) string {
+	s := t.ID
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+func (t *Task) StatusAbbrev() string {
+	switch t.Status {
+	case "open":
+		return "o"
+	case "doing":
+		return "d"
+	case "blocked":
+		return "b"
+	case "done":
+		return "✓"
+	case "archived":
+		return "a"
+	default:
+		return "?"
+	}
+}
+
+func (t *Task) PriorityAbbrev() string {
+	switch normalizePriority(t.Priority) {
+	case "low":
+		return "L"
+	case "normal":
+		return "N"
+	case "high":
+		return "H"
+	case "urgent":
+		return "U"
+	default:
+		return "?"
+	}
+}
+
+func (t *Task) RenderHuman() string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s\n", t.Title))
+	b.WriteString(fmt.Sprintf("ID: %s\n", t.ID))
+	b.WriteString(fmt.Sprintf("Project: %s\n", t.Project))
+	b.WriteString(fmt.Sprintf("Column: %s\n", t.Column))
+	b.WriteString(fmt.Sprintf("Status: %s\n", t.Status))
+	b.WriteString(fmt.Sprintf("Priority: %s\n", t.Priority))
+	if t.Due != "" {
+		b.WriteString(fmt.Sprintf("Due: %s\n", t.Due))
+	}
+	if len(t.Tags) > 0 {
+		b.WriteString(fmt.Sprintf("Tags: %s\n", strings.Join(t.Tags, ", ")))
+	}
+	b.WriteString("\n")
+	if strings.TrimSpace(t.Body) != "" {
+		b.WriteString(strings.TrimRight(t.Body, "\n"))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func writeTaskFile(t *Task) error {
+	yamlBytes, err := yaml.Marshal(&t.TaskMeta)
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	buf.WriteString("---\n")
+	buf.Write(yamlBytes)
+	buf.WriteString("---\n\n")
+	if strings.TrimSpace(t.Body) != "" {
+		buf.WriteString(t.Body)
+		if !strings.HasSuffix(t.Body, "\n") {
+			buf.WriteString("\n")
+		}
+	}
+	return atomicWriteFile(t.Path, buf.Bytes(), 0o644)
+}
+
+func readTaskFile(path string) (*Task, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	meta, body, err := parseFrontmatter(b)
+	if err != nil {
+		return nil, err
+	}
+	t := &Task{TaskMeta: *meta, Path: path, Body: body}
+	return t, nil
+}
+
+func parseFrontmatter(b []byte) (*TaskMeta, string, error) {
+	s := strings.ReplaceAll(string(b), "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	if !strings.HasPrefix(s, "---\n") {
+		// No frontmatter; treat as invalid for v0.1.
+		return nil, "", fmt.Errorf("%w: missing frontmatter", ErrInvalid)
+	}
+	parts := strings.SplitN(s, "\n---\n", 2)
+	if len(parts) != 2 {
+		return nil, "", fmt.Errorf("%w: invalid frontmatter delimiters", ErrInvalid)
+	}
+	// parts[0] includes leading ---\n
+	yamlPart := strings.TrimPrefix(parts[0], "---\n")
+	body := parts[1]
+	var meta TaskMeta
+	if err := yaml.Unmarshal([]byte(yamlPart), &meta); err != nil {
+		return nil, "", err
+	}
+	if meta.Schema == 0 {
+		meta.Schema = 1
+	}
+	return &meta, body, nil
+}
+
+func (w *Workspace) findTasksByPrefix(prefix string) ([]string, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return nil, nil
+	}
+	prefixNorm := strings.ToUpper(prefix)
+	var hits []string
+	root := filepath.Join(w.Root, "projects")
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+			return nil
+		}
+		// Prefer parsing meta for correctness
+		t, err := readTaskFile(path)
+		if err != nil {
+			return nil
+		}
+		if strings.HasPrefix(strings.ToUpper(t.ID), prefixNorm) {
+			hits = append(hits, path)
+		}
+		return nil
+	})
+	sort.Strings(hits)
+	return hits, nil
+}
+
+func (w *Workspace) projectColumnsDir(projectSlug string) string {
+	return filepath.Join(w.Root, "projects", projectSlug, "columns")
+}
+
+func (w *Workspace) columnByID(id string) (ColumnDef, bool) {
+	id = strings.TrimSpace(strings.ToLower(id))
+	for _, c := range w.cfg.Columns {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return ColumnDef{}, false
+}
+
+func (w *Workspace) columnIDByDir(dir string) (string, bool) {
+	dir = strings.TrimSpace(dir)
+	for _, c := range w.cfg.Columns {
+		if c.Dir == dir {
+			return c.ID, true
+		}
+	}
+	return "", false
+}
+
+func normalizePriority(p string) string {
+	p = strings.TrimSpace(strings.ToLower(p))
+	switch p {
+	case "low", "l":
+		return "low"
+	case "normal", "n", "med", "medium":
+		return "normal"
+	case "high", "h":
+		return "high"
+	case "urgent", "u", "p0":
+		return "urgent"
+	default:
+		if p == "" {
+			return "normal"
+		}
+		return p
+	}
+}
+
+func newULID() string {
+	t := ulid.Timestamp(timeNow())
+	entropy := ulid.Monotonic(randReader{}, 0)
+	id, err := ulid.New(t, entropy)
+	if err != nil {
+		// fallback
+		return fmt.Sprintf("%d", timeNow().UnixNano())
+	}
+	return strings.ToUpper(id.String())
+}
+
+func slugifyOrDefault(s, def string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		s = def
+	}
+	return slugify(s)
+}
+
+func slugify(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return "x"
+	}
+	// Replace non-alnum with hyphen
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range s {
+		isAlnum := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if isAlnum {
+			b.WriteRune(r)
+			lastHyphen = false
+		} else {
+			if !lastHyphen {
+				b.WriteByte('-')
+				lastHyphen = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "x"
+	}
+	return out
+}
+
+func dedupeStrings(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		key := strings.ToLower(s)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func containsString(list []string, v string) bool {
+	v = strings.TrimSpace(strings.ToLower(v))
+	for _, s := range list {
+		if strings.ToLower(s) == v {
+			return true
+		}
+	}
+	return false
+}
+
+func truncate(s string, n int, ascii bool) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n <= 3 {
+		return string(r[:n])
+	}
+	if ascii {
+		return string(r[:n-2]) + ".."
+	}
+	// unicode ellipsis
+	return string(r[:n-1]) + "…"
+}
+
+func (w *Workspace) projectAndColumnFromPath(path string) (string, string) {
+	projectsRoot := filepath.Join(w.Root, "projects")
+	rel, err := filepath.Rel(projectsRoot, path)
+	if err != nil {
+		return "", ""
+	}
+	if strings.HasPrefix(rel, "..") {
+		return "", ""
+	}
+	parts := strings.Split(rel, string(os.PathSeparator))
+	if len(parts) < 3 {
+		return "", ""
+	}
+	project := parts[0]
+	if parts[1] != "columns" {
+		return project, ""
+	}
+	colDir := parts[2]
+	colID, _ := w.columnIDByDir(colDir)
+	return project, colID
+}
+
+func (w *Workspace) reconcileTaskFromPath(t *Task) {
+	if t == nil {
+		return
+	}
+	project, colID := w.projectAndColumnFromPath(t.Path)
+	if project != "" {
+		t.Project = project
+	}
+	if colID != "" {
+		t.Column = colID
+		if col, ok := w.columnByID(colID); ok {
+			t.Status = col.Status
+		}
+	}
+}
+
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~"+string(os.PathSeparator)) || path == "~" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			return filepath.Join(home, strings.TrimPrefix(path, "~"))
+		}
+	}
+	return path
+}
+
+func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp := filepath.Join(dir, fmt.Sprintf(".tmp-%d", timeNow().UnixNano()))
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	// Rename is atomic on same filesystem.
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
