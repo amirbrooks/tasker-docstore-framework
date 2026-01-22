@@ -185,7 +185,9 @@ func resolveSelectorProject(ws *store.Workspace, project string) string {
 func normalizeMatchMode(mode string) (string, error) {
 	mode = strings.TrimSpace(strings.ToLower(mode))
 	switch mode {
-	case "", "exact":
+	case "", "auto":
+		return store.MatchAuto, nil
+	case "exact":
 		return store.MatchExact, nil
 	case "prefix", "starts", "starts-with", "startswith":
 		return store.MatchPrefix, nil
@@ -194,7 +196,7 @@ func normalizeMatchMode(mode string) (string, error) {
 	case "search", "text", "body":
 		return store.MatchSearch, nil
 	default:
-		return "", fmt.Errorf("unknown --match %q (use exact|prefix|contains|search)", mode)
+		return "", fmt.Errorf("unknown --match %q (use auto|exact|prefix|contains|search)", mode)
 	}
 }
 
@@ -237,7 +239,7 @@ func handleMatchConflict(cmd string, err error) bool {
 		}
 		fmt.Fprintf(os.Stderr, "  - %s: %s%s\n", loc, title, due)
 	}
-	fmt.Fprintln(os.Stderr, "Tip: use a more specific title, pass --project/--column/--status/--match, or set TASKER_PROJECT/agent.default_project.")
+	fmt.Fprintln(os.Stderr, "Tip: use a more specific title, pass --project/--column/--status/--match, or quote multi-word selectors.")
 	return true
 }
 func Run(args []string) int {
@@ -334,11 +336,11 @@ Commands:
   add --text "<title | details | due 2026-01-23>" --project <name> [--column <col>] [--priority <p>] [--tag <t>...]
   capture "<title | details | due 2026-01-23>" [--project <name>] [--column <col>] [--priority <p>] [--tag <t>...]
   ls [--project <name>] [--column <col>] [--status <s>] [--tag <t>] [--search <q>] [--all]
-  show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>
-  resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>
-  mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector> <column>
-  done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>
-  note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector> "<text>"
+  show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector...>
+  resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector...>
+  mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector...> <column>
+  done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector...>
+  note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector...> -- <text...>
   board --project <name> [--open|--all]
   today [--project <name>] [--open|--all] [--group project|column|none] [--totals]
   tasks [today|week] [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
@@ -1455,6 +1457,38 @@ func parseTextParts(text string) (string, string, string, string, []string) {
 	return title, detailText, due, priority, tags
 }
 
+func splitNoteInput(ws *store.Workspace, filter store.SelectorFilter, tokens []string) (string, string, string, error) {
+	if len(tokens) < 2 {
+		return "", "", "", errors.New("note input requires selector and text")
+	}
+	var selectedID string
+	var selectedSelector string
+	var selectedText string
+	for i := len(tokens) - 1; i >= 1; i-- {
+		selector := strings.Join(tokens[:i], " ")
+		text := strings.Join(tokens[i:], " ")
+		matches, err := ws.ResolveTasks(selector, filter)
+		if err != nil {
+			continue
+		}
+		if len(matches) != 1 {
+			continue
+		}
+		if selectedID != "" && matches[0].ID != selectedID {
+			return "", "", "", errors.New("ambiguous selector split")
+		}
+		if selectedID == "" {
+			selectedID = matches[0].ID
+			selectedSelector = selector
+			selectedText = text
+		}
+	}
+	if selectedID == "" {
+		return "", "", "", store.ErrNotFound
+	}
+	return selectedID, selectedSelector, selectedText, nil
+}
+
 func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	args = reorderFlags(args, map[string]bool{
 		"--project": true,
@@ -1469,7 +1503,7 @@ func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
-	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -1478,7 +1512,7 @@ func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: tasker show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>")
 		return ExitUsage
 	}
-	selector := rest[0]
+	selector := strings.Join(rest, " ")
 	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "show:", err)
@@ -1535,7 +1569,7 @@ func cmdResolve(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
-	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -1544,7 +1578,7 @@ func cmdResolve(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: tasker resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>")
 		return ExitUsage
 	}
-	selector := rest[0]
+	selector := strings.Join(rest, " ")
 	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "resolve:", err)
@@ -1614,7 +1648,7 @@ func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id (filter)")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
-	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -1623,8 +1657,8 @@ func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: tasker mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector> <column>")
 		return ExitUsage
 	}
-	selector := rest[0]
-	destColumn := rest[1]
+	destColumn := rest[len(rest)-1]
+	selector := strings.Join(rest[:len(rest)-1], " ")
 	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mv:", err)
@@ -1698,7 +1732,7 @@ func cmdDone(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id (filter)")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
-	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -1707,7 +1741,7 @@ func cmdDone(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: tasker done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>")
 		return ExitUsage
 	}
-	selector := rest[0]
+	selector := strings.Join(rest, " ")
 	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "done:", err)
@@ -1769,15 +1803,28 @@ func cmdDone(ws *store.Workspace, gf GlobalFlags, args []string) int {
 
 func cmdNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector> \"<text>\"")
+		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector...> -- <text...>")
 		return ExitUsage
 	}
 	sub := args[0]
 	if sub != "add" {
-		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector> \"<text>\"")
+		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector...> -- <text...>")
 		return ExitUsage
 	}
-	args = reorderFlags(args[1:], map[string]bool{
+	rawArgs := args[1:]
+	noteSplit := -1
+	for i, arg := range rawArgs {
+		if arg == "--" {
+			noteSplit = i
+			break
+		}
+	}
+	var noteTokens []string
+	if noteSplit >= 0 {
+		noteTokens = rawArgs[noteSplit+1:]
+		rawArgs = rawArgs[:noteSplit]
+	}
+	args = reorderFlags(rawArgs, map[string]bool{
 		"--project": true,
 		"--column":  true,
 		"--status":  true,
@@ -1790,23 +1837,67 @@ func cmdNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id (filter)")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
-	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
 	rest := fs.Args()
-	if len(rest) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector> \"<text>\"")
-		return ExitUsage
-	}
-	selector := rest[0]
-	text := strings.Join(rest[1:], " ")
 	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "note:", err)
 		return ExitUsage
 	}
-	taskRef, err := ws.GetTaskBySelectorFiltered(selector, filter)
+	var taskID string
+	var selector string
+	var text string
+	if len(noteTokens) > 0 {
+		if len(rest) == 0 {
+			fmt.Fprintln(os.Stderr, "Usage: tasker note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector...> -- <text...>")
+			return ExitUsage
+		}
+		selector = strings.Join(rest, " ")
+		text = strings.Join(noteTokens, " ")
+		taskRef, err := ws.GetTaskBySelectorFiltered(selector, filter)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				fmt.Fprintln(os.Stderr, "note: not found")
+				return ExitNotFound
+			}
+			if errors.Is(err, store.ErrConflict) {
+				if handleMatchConflict("note", err) {
+					return ExitConflict
+				}
+				fmt.Fprintln(os.Stderr, "note: ambiguous selector")
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, "note:", err)
+			return ExitInternal
+		}
+		taskID = taskRef.ID
+	} else {
+		if len(rest) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: tasker note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector...> -- <text...>")
+			return ExitUsage
+		}
+		taskID, selector, text, err = splitNoteInput(ws, filter, rest)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				fmt.Fprintln(os.Stderr, "note: not found")
+				return ExitNotFound
+			}
+			if err.Error() == "ambiguous selector split" {
+				fmt.Fprintln(os.Stderr, "note: ambiguous selector; use -- to separate selector and note text")
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, "note:", err)
+			return ExitInternal
+		}
+	}
+	if strings.TrimSpace(text) == "" {
+		fmt.Fprintln(os.Stderr, "note: text is required (use -- to separate selector and note text)")
+		return ExitUsage
+	}
+	task, err := ws.AddNote(taskID, strings.TrimSpace(text))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "note: not found")
@@ -1817,19 +1908,6 @@ func cmdNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
 				return ExitConflict
 			}
 			fmt.Fprintln(os.Stderr, "note: ambiguous selector")
-			return ExitConflict
-		}
-		fmt.Fprintln(os.Stderr, "note:", err)
-		return ExitInternal
-	}
-	task, err := ws.AddNote(taskRef.ID, strings.TrimSpace(text))
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			fmt.Fprintln(os.Stderr, "note: not found")
-			return ExitNotFound
-		}
-		if errors.Is(err, store.ErrConflict) {
-			fmt.Fprintln(os.Stderr, "note: ambiguous id prefix")
 			return ExitConflict
 		}
 		fmt.Fprintln(os.Stderr, "note:", err)

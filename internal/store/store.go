@@ -60,6 +60,7 @@ type SelectorFilter struct {
 }
 
 const (
+	MatchAuto     = "auto"
 	MatchExact    = "exact"
 	MatchPrefix   = "prefix"
 	MatchContains = "contains"
@@ -467,17 +468,46 @@ func normalizeSelectorFilter(filter SelectorFilter) SelectorFilter {
 func normalizeMatchMode(match string) string {
 	match = strings.TrimSpace(strings.ToLower(match))
 	switch match {
+	case MatchAuto:
+		return match
 	case MatchExact, MatchPrefix, MatchContains, MatchSearch:
 		return match
 	case "":
-		return MatchExact
+		return MatchAuto
 	default:
-		return MatchExact
+		return MatchAuto
 	}
 }
 
 func (w *Workspace) findTasksByMatchMode(selector string, filter SelectorFilter) ([]Task, error) {
 	switch filter.Match {
+	case MatchAuto:
+		selector = strings.TrimSpace(selector)
+		if selector == "" {
+			return nil, nil
+		}
+		matches, err := w.findTasksByTitleExactFiltered(selector, filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) > 0 {
+			return matches, nil
+		}
+		matches, err = w.findTasksByTitlePrefixFiltered(selector, filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) > 0 {
+			return matches, nil
+		}
+		matches, err = w.findTasksByTitleContainsFiltered(selector, filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) > 0 {
+			return matches, nil
+		}
+		return w.findTasksBySearchFiltered(selector, filter)
 	case MatchSearch:
 		return w.findTasksBySearchFiltered(selector, filter)
 	case MatchPrefix:
