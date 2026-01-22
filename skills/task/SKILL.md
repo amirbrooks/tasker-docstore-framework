@@ -1,26 +1,25 @@
 ---
 name: task
-description: Tasker docstore tasks via tool-dispatch (no model bloat)
+description: Tasker docstore task management via tool-dispatch. Use for task lists, due today/overdue, week planning, add/move/complete, or explicit /task commands.
 user-invocable: true
-disable-model-invocation: true
+disable-model-invocation: false
 command-dispatch: tool
 command-tool: tasker_cmd
 command-arg-mode: raw
-metadata: {"clawdbot":{"emoji":"🗂️","requires":{"bins":["tasker"]}}}
+metadata: {"clawdbot":{"emoji":"🗂️"}}
 ---
 
-Use `/task` to manage tasks via the deterministic `tasker` CLI.
+Route task-related requests to `tasker_cmd` (raw args only, no leading `tasker`).
 
-Examples:
-- `/task init`
-- `/task project add "Work"`
-- `/task add "Draft proposal" --project Work --column todo --due 2026-01-23 --priority high --tag client`
-- `/task ls --project Work`
-- `/task board --project Work --ascii`
-- `/task tasks --project Work`   # due today + overdue
-- `/task week --project Work --days 7`
-- `/task done tsk_01J4F3N8`
+- For natural language, translate the request into CLI args.
+- For `/task ...`, pass the args through unchanged.
+- Prefer human-readable output. Avoid `--stdout-json`/`--stdout-ndjson` unless explicitly requested.
+- This is the natural-language profile. For slash-only, use `skills/task-slash/`.
 
-Output modes:
-- `--json`, `--ndjson`, `--plain`, `--ascii`
-- JSON/NDJSON write to `<root>/exports` by default (no stdout JSON unless `--stdout-json`/`--stdout-ndjson` is used).
+Common mappings:
+- "tasks today" / "overdue" -> `tasks --open` (today + overdue)
+- "what's our week" -> `week --days 7`
+- "show tasks for Work" -> `tasks --project Work`
+- "add <task> today" -> `add "<task>" --today [--project <name>]`
+- "mark <id> done" -> `done <id>`
+- "show config" -> `config show`
