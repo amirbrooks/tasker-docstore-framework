@@ -52,6 +52,8 @@ type AgentConfig struct {
 	DefaultView     string `json:"default_view"` // today|week
 	WeekDays        int    `json:"week_days"`
 	OpenOnly        bool   `json:"open_only"`
+	SummaryGroup    string `json:"summary_group"`  // none|project|column
+	SummaryTotals   bool   `json:"summary_totals"` // show per-group counts
 }
 
 type Project struct {
@@ -512,7 +514,7 @@ func (w *Workspace) RenderBoard(project string, ascii bool) (string, error) {
 	return b.String(), nil
 }
 
-func (w *Workspace) RenderToday(project string, openOnly bool) (string, error) {
+func (w *Workspace) RenderToday(project string, openOnly bool, groupBy string, showTotals bool) (string, error) {
 	filter := ListFilter{Project: project, All: false}
 	tasks, err := w.ListTasks(filter)
 	if err != nil {
@@ -538,28 +540,12 @@ func (w *Workspace) RenderToday(project string, openOnly bool) (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Today (%s) — due %d, overdue %d\n\n", today, len(dueToday), len(overdue)))
-	b.WriteString("Due today:\n")
-	if len(dueToday) == 0 {
-		b.WriteString("  (none)\n\n")
-	} else {
-		for _, t := range dueToday {
-			b.WriteString(fmt.Sprintf("  %s %s %s/%s %s\n", t.ID, t.PriorityAbbrev(), t.Project, t.Column, t.Title))
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("Overdue:\n")
-	if len(overdue) == 0 {
-		b.WriteString("  (none)\n\n")
-	} else {
-		for _, t := range overdue {
-			b.WriteString(fmt.Sprintf("  %s %s (%s) %s/%s %s\n", t.ID, t.PriorityAbbrev(), t.Due, t.Project, t.Column, t.Title))
-		}
-		b.WriteString("\n")
-	}
+	writeTaskSection(&b, "Due today", dueToday, groupBy, showTotals, false)
+	writeTaskSection(&b, "Overdue", overdue, groupBy, showTotals, true)
 	return b.String(), nil
 }
 
-func (w *Workspace) RenderAgenda(project string, days int, openOnly bool) (string, error) {
+func (w *Workspace) RenderAgenda(project string, days int, openOnly bool, groupBy string, showTotals bool) (string, error) {
 	filter := ListFilter{Project: project, All: false}
 	tasks, err := w.ListTasks(filter)
 	if err != nil {
@@ -598,31 +584,14 @@ func (w *Workspace) RenderAgenda(project string, days int, openOnly bool) (strin
 	rangeLabel := fmt.Sprintf("%s → %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
 	b.WriteString(fmt.Sprintf("Week (%d days) — %s — due %d, overdue %d\n\n", days, rangeLabel, lenByDate(byDate), len(overdue)))
 
-	b.WriteString("Overdue:\n")
-	if len(overdue) == 0 {
-		b.WriteString("  (none)\n\n")
-	} else {
-		sort.Slice(overdue, func(i, j int) bool { return overdue[i].Due < overdue[j].Due })
-		for _, t := range overdue {
-			b.WriteString(fmt.Sprintf("  %s %s (%s) %s/%s %s\n", t.ID, t.PriorityAbbrev(), t.Due, t.Project, t.Column, t.Title))
-		}
-		b.WriteString("\n")
-	}
+	writeTaskSection(&b, "Overdue", overdue, groupBy, showTotals, true)
 
 	for i := 0; i < days; i++ {
 		d := start.AddDate(0, 0, i)
 		key := d.Format("2006-01-02")
 		label := fmt.Sprintf("%s (%s)", key, d.Weekday().String()[:3])
-		b.WriteString(label + ":\n")
 		items := byDate[key]
-		if len(items) == 0 {
-			b.WriteString("  (none)\n\n")
-			continue
-		}
-		for _, t := range items {
-			b.WriteString(fmt.Sprintf("  %s %s %s/%s %s\n", t.ID, t.PriorityAbbrev(), t.Project, t.Column, t.Title))
-		}
-		b.WriteString("\n")
+		writeTaskSection(&b, label, items, groupBy, showTotals, false)
 	}
 	return b.String(), nil
 }
@@ -641,6 +610,81 @@ func isOpenStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func writeTaskSection(b *strings.Builder, title string, tasks []Task, groupBy string, showTotals bool, includeDue bool) {
+	b.WriteString(title + ":\n")
+	if len(tasks) == 0 {
+		b.WriteString("  (none)\n\n")
+		return
+	}
+	groupBy = normalizeGroupBy(groupBy)
+	if groupBy == "" {
+		for _, t := range tasks {
+			b.WriteString(formatTaskLine(t, "", includeDue))
+		}
+		b.WriteString("\n")
+		return
+	}
+	keys, grouped := groupTasks(tasks, groupBy)
+	for _, key := range keys {
+		header := fmt.Sprintf("%s: %s", strings.Title(groupBy), key)
+		if showTotals {
+			header = fmt.Sprintf("%s (%d)", header, len(grouped[key]))
+		}
+		b.WriteString("  " + header + "\n")
+		for _, t := range grouped[key] {
+			b.WriteString(formatTaskLine(t, groupBy, includeDue))
+		}
+		b.WriteString("\n")
+	}
+}
+
+func normalizeGroupBy(groupBy string) string {
+	groupBy = strings.TrimSpace(strings.ToLower(groupBy))
+	switch groupBy {
+	case "", "none":
+		return ""
+	case "project", "column":
+		return groupBy
+	default:
+		return ""
+	}
+}
+
+func groupTasks(tasks []Task, groupBy string) ([]string, map[string][]Task) {
+	grouped := map[string][]Task{}
+	for _, t := range tasks {
+		key := ""
+		switch groupBy {
+		case "project":
+			key = t.Project
+		case "column":
+			key = t.Column
+		}
+		grouped[key] = append(grouped[key], t)
+	}
+	keys := make([]string, 0, len(grouped))
+	for k := range grouped {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys, grouped
+}
+
+func formatTaskLine(t Task, groupBy string, includeDue bool) string {
+	due := ""
+	if includeDue && t.Due != "" {
+		due = fmt.Sprintf(" (%s)", t.Due)
+	}
+	switch groupBy {
+	case "project":
+		return fmt.Sprintf("    %s %s%s %s %s\n", t.ID, t.PriorityAbbrev(), due, t.Column, t.Title)
+	case "column":
+		return fmt.Sprintf("    %s %s%s %s %s\n", t.ID, t.PriorityAbbrev(), due, t.Project, t.Title)
+	default:
+		return fmt.Sprintf("  %s %s%s %s/%s %s\n", t.ID, t.PriorityAbbrev(), due, t.Project, t.Column, t.Title)
 	}
 }
 

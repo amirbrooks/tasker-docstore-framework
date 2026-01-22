@@ -17,11 +17,11 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
   - Run: `./tasker tasks [--project <name>]`
   - This shows **due today + overdue** in human format.
 - “what tasks left for today”, “what’s left today”
-  - Run: `./tasker tasks today --open [--project <name>]`
+  - Run: `./tasker tasks today --open [--project <name>] [--group <project|column>] [--totals]`
 - “list tasks”, “show tasks for <project>”
   - Run: `./tasker ls [--project <name>] [--column <col>] [--status <s>] [--tag <t>]`
 - “what’s our week looking like”, “upcoming tasks”, “agenda”
-  - Run: `./tasker week [--project <name>] [--days N]`
+  - Run: `./tasker week [--project <name>] [--days N] [--group <project|column>] [--totals]`
 - “add task …”
   - Run: `./tasker add "<title>" --project <name> [--column <col>] [--due <YYYY-MM-DD>] [--priority <p>] [--tag <t>]`
 - “mark done”, “complete task <id>”
@@ -44,3 +44,10 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
 
 ## Agent activation (optional config)
 If `<root>/config.json` has `agent.require_explicit: true`, only act when the user explicitly uses `/task` or “tasker”. Otherwise, ask them to confirm running tasker commands.
+
+## User preference prompts (first-time setup)
+If no agent defaults are set, ask the user for preferences and suggest adding them to config:
+- Default project?
+- Default view: today or week?
+- Open-only by default?
+- Group summaries by project or column? Show per-group totals?

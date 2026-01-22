@@ -106,6 +106,27 @@ func resolveWeekDays(ws *store.Workspace, daysFlag int) int {
 	}
 	return 7
 }
+
+func resolveGroupBy(ws *store.Workspace, groupFlag string) string {
+	group := strings.ToLower(strings.TrimSpace(groupFlag))
+	if group != "" {
+		return group
+	}
+	if ac := agentConfig(ws); ac != nil && strings.TrimSpace(ac.SummaryGroup) != "" {
+		return strings.ToLower(strings.TrimSpace(ac.SummaryGroup))
+	}
+	return ""
+}
+
+func resolveShowTotals(ws *store.Workspace, totalsFlag bool) bool {
+	if totalsFlag {
+		return true
+	}
+	if ac := agentConfig(ws); ac != nil && ac.SummaryTotals {
+		return true
+	}
+	return false
+}
 func Run(args []string) int {
 	gf, rest, err := extractGlobalFlags(args)
 	if err != nil {
@@ -194,12 +215,12 @@ Commands:
   done <id-or-prefix>
   note add <id-or-prefix> "<text>"
   board --project <name>
-  today [--project <name>] [--open|--all]
-  tasks [today|week] [--project <name>] [--days N] [--open|--all]
-  summary [today|week] [--project <name>] [--days N] [--open|--all]
-  week [--project <name>] [--days N] [--open|--all]
-  agenda [--project <name>] [--days N] [--open|--all]
-  upcoming [--project <name>] [--days N] [--open|--all]
+  today [--project <name>] [--open|--all] [--group project|column|none] [--totals]
+  tasks [today|week] [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
+  summary [today|week] [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
+  week [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
+  agenda [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
+  upcoming [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
 
 Columns:
   inbox|todo|doing|blocked|done|archive
@@ -294,7 +315,7 @@ func cmdOnboarding(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	fmt.Println("  tasker board --project Work --ascii")
 	fmt.Println()
 	fmt.Println("Tip: Use --root or TASKER_ROOT to point to a specific store.")
-	fmt.Println("Optional: Add agent defaults in config.json (default project/view, open-only).")
+	fmt.Println("Optional: Add agent defaults in config.json (default project/view, open-only, grouping).")
 	return ExitOK
 }
 
@@ -767,12 +788,16 @@ func cmdToday(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--project": true,
 		"--open":    false,
 		"--all":     false,
+		"--group":   true,
+		"--totals":  false,
 	})
 	fs := flag.NewFlagSet("today", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	project := fs.String("project", "", "Project name/slug")
 	openOnly := fs.Bool("open", false, "Only open/doing/blocked")
 	all := fs.Bool("all", false, "Include done/archived")
+	group := fs.String("group", "", "Group by project|column|none")
+	totals := fs.Bool("totals", false, "Show per-group totals")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -787,7 +812,16 @@ func cmdToday(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	}
 	projectName := resolveProject(ws, *project)
 	open := resolveOpenOnly(ws, *openOnly, *all)
-	out, err := ws.RenderToday(projectName, open)
+	groupBy := resolveGroupBy(ws, *group)
+	if groupBy == "none" {
+		groupBy = ""
+	}
+	if groupBy != "" && groupBy != "project" && groupBy != "column" {
+		fmt.Fprintln(os.Stderr, "today: invalid --group (use project|column|none)")
+		return ExitUsage
+	}
+	showTotals := resolveShowTotals(ws, *totals)
+	out, err := ws.RenderToday(projectName, open, groupBy, showTotals)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "today:", err)
 		return ExitInternal
@@ -802,6 +836,8 @@ func cmdAgenda(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--days":    true,
 		"--open":    false,
 		"--all":     false,
+		"--group":   true,
+		"--totals":  false,
 	})
 	fs := flag.NewFlagSet("week", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -809,6 +845,8 @@ func cmdAgenda(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	days := fs.Int("days", 0, "Days ahead (default 7)")
 	openOnly := fs.Bool("open", false, "Only open/doing/blocked")
 	all := fs.Bool("all", false, "Include done/archived")
+	group := fs.String("group", "", "Group by project|column|none")
+	totals := fs.Bool("totals", false, "Show per-group totals")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -824,7 +862,16 @@ func cmdAgenda(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	projectName := resolveProject(ws, *project)
 	open := resolveOpenOnly(ws, *openOnly, *all)
 	window := resolveWeekDays(ws, *days)
-	out, err := ws.RenderAgenda(projectName, window, open)
+	groupBy := resolveGroupBy(ws, *group)
+	if groupBy == "none" {
+		groupBy = ""
+	}
+	if groupBy != "" && groupBy != "project" && groupBy != "column" {
+		fmt.Fprintln(os.Stderr, "week: invalid --group (use project|column|none)")
+		return ExitUsage
+	}
+	showTotals := resolveShowTotals(ws, *totals)
+	out, err := ws.RenderAgenda(projectName, window, open, groupBy, showTotals)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "week:", err)
 		return ExitInternal
@@ -839,6 +886,8 @@ func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--days":    true,
 		"--open":    false,
 		"--all":     false,
+		"--group":   true,
+		"--totals":  false,
 	})
 	fs := flag.NewFlagSet("tasks", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -846,6 +895,8 @@ func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	days := fs.Int("days", 0, "Days ahead (for week/agenda)")
 	openOnly := fs.Bool("open", false, "Only open/doing/blocked")
 	all := fs.Bool("all", false, "Include done/archived")
+	group := fs.String("group", "", "Group by project|column|none")
+	totals := fs.Bool("totals", false, "Show per-group totals")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -872,9 +923,18 @@ func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	}
 	projectName := resolveProject(ws, *project)
 	open := resolveOpenOnly(ws, *openOnly, *all)
+	groupBy := resolveGroupBy(ws, *group)
+	if groupBy == "none" {
+		groupBy = ""
+	}
+	if groupBy != "" && groupBy != "project" && groupBy != "column" {
+		fmt.Fprintln(os.Stderr, "tasks: invalid --group (use project|column|none)")
+		return ExitUsage
+	}
+	showTotals := resolveShowTotals(ws, *totals)
 	if mode == "week" {
 		window := resolveWeekDays(ws, *days)
-		out, err := ws.RenderAgenda(projectName, window, open)
+		out, err := ws.RenderAgenda(projectName, window, open, groupBy, showTotals)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "tasks:", err)
 			return ExitInternal
@@ -882,7 +942,7 @@ func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Println(out)
 		return ExitOK
 	}
-	out, err := ws.RenderToday(projectName, open)
+	out, err := ws.RenderToday(projectName, open, groupBy, showTotals)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tasks:", err)
 		return ExitInternal

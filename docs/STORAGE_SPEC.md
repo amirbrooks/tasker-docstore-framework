@@ -59,7 +59,9 @@ Optional agent config can be added to `<root>/config.json`:
     "default_project": "work",
     "default_view": "today",
     "week_days": 7,
-    "open_only": true
+    "open_only": true,
+    "summary_group": "project",
+    "summary_totals": true
   }
 }
 ```

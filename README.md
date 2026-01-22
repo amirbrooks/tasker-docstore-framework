@@ -79,7 +79,9 @@ Optional agent defaults (`<root>/config.json`):
     "default_view": "today",
     "week_days": 7,
     "open_only": true,
-    "require_explicit": false
+    "require_explicit": false,
+    "summary_group": "project",
+    "summary_totals": true
   }
 }
 ```

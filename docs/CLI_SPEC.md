@@ -78,6 +78,8 @@ Alias for `week`.
 ### Flags for today/week/tasks
 - `--open`: only open/doing/blocked tasks
 - `--all`: include done/archived (overrides `--open`)
+- `--group project|column|none`: group output for human summaries
+- `--totals`: show per-group counts when grouping
 
 ## Exit codes
 
