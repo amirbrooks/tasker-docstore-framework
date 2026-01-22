@@ -5,6 +5,21 @@ One binary. Local‑first tasks in Markdown. Works great with agents.
 This is a **framework + scaffolding** for a local-first task manager that stores tasks as **Markdown files** with YAML frontmatter,
 organized in a **filesystem Kanban** layout (projects + columns).
 
+## Why tasker
+
+- Local‑first: tasks live as plain Markdown files.
+- Agent‑friendly: human summaries by default, machine exports on demand.
+- Simple: one binary, no database, easy backup with Git.
+
+## 30‑second quickstart
+
+```bash
+npm install -g @amirbrooks/tasker-docstore
+tasker init --project "Work"
+tasker add "First task" --project Work --today
+tasker tasks --project Work
+```
+
 It is designed to integrate with **Clawdbot** via:
 - a plugin tool (`tasker_cmd`) that safely spawns the `tasker` CLI with `shell:false`
 - a skill (`/task`) that uses `command-dispatch: tool` to bypass the model (low-bloat)
