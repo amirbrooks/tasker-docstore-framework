@@ -169,8 +169,26 @@ func resolveShowTotals(ws *store.Workspace, totalsFlag bool) bool {
 	return false
 }
 
-func selectorProject(ws *store.Workspace) string {
-	return resolveProject(ws, "")
+func resolveSelectorProject(ws *store.Workspace, project string) string {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return resolveProject(ws, "")
+	}
+	switch strings.ToLower(project) {
+	case "all", "none":
+		return ""
+	default:
+		return project
+	}
+}
+
+func selectorFilter(ws *store.Workspace, project string, column string, status string, includeArchived bool) store.SelectorFilter {
+	return store.SelectorFilter{
+		Project:         resolveSelectorProject(ws, project),
+		Column:          strings.TrimSpace(column),
+		Status:          strings.TrimSpace(status),
+		IncludeArchived: includeArchived,
+	}
 }
 
 func handleMatchConflict(cmd string, err error) bool {
@@ -198,7 +216,7 @@ func handleMatchConflict(cmd string, err error) bool {
 		}
 		fmt.Fprintf(os.Stderr, "  - %s: %s%s\n", loc, title, due)
 	}
-	fmt.Fprintln(os.Stderr, "Tip: use a more specific title or set TASKER_PROJECT/agent.default_project.")
+	fmt.Fprintln(os.Stderr, "Tip: use a more specific title, pass --project/--column/--status, or set TASKER_PROJECT/agent.default_project.")
 	return true
 }
 func Run(args []string) int {
@@ -236,10 +254,14 @@ func Run(args []string) int {
 		return cmdProject(ws, gf, cmdArgs)
 	case "add":
 		return cmdAdd(ws, gf, cmdArgs)
+	case "capture":
+		return cmdCapture(ws, gf, cmdArgs)
 	case "ls", "list":
 		return cmdList(ws, gf, cmdArgs)
 	case "show":
 		return cmdShow(ws, gf, cmdArgs)
+	case "resolve":
+		return cmdResolve(ws, gf, cmdArgs)
 	case "mv", "move":
 		return cmdMove(ws, gf, cmdArgs)
 	case "done":
@@ -288,11 +310,14 @@ Commands:
   project add "<name>"
   project ls
   add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...] [--desc <text>|--details <text>]
+  add --text "<title | details | due 2026-01-23>" --project <name> [--column <col>] [--priority <p>] [--tag <t>...]
+  capture "<title | details | due 2026-01-23>" [--project <name>] [--column <col>] [--priority <p>] [--tag <t>...]
   ls [--project <name>] [--column <col>] [--status <s>] [--tag <t>] [--search <q>] [--all]
-  show <selector>
-  mv <selector> <column>
-  done <selector>
-  note add <selector> "<text>"
+  show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>
+  resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>
+  mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector> <column>
+  done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>
+  note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector> "<text>"
   board --project <name> [--open|--all]
   today [--project <name>] [--open|--all] [--group project|column|none] [--totals]
   tasks [today|week] [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
@@ -728,86 +753,7 @@ func cmdProject(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	}
 }
 
-func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
-	args = reorderFlags(args, map[string]bool{
-		"--project":   true,
-		"--column":    true,
-		"--due":       true,
-		"--priority":  true,
-		"--tag":       true,
-		"--desc":      true,
-		"--details":   true,
-		"--today":     false,
-		"--tomorrow":  false,
-		"--next-week": false,
-	})
-	fs := flag.NewFlagSet("add", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	project := fs.String("project", "", "Project name/slug")
-	column := fs.String("column", "inbox", "Column id (inbox|todo|doing|blocked|done|archive)")
-	due := fs.String("due", "", "Due date (YYYY-MM-DD) or RFC3339")
-	dueToday := fs.Bool("today", false, "Shortcut: due today")
-	dueTomorrow := fs.Bool("tomorrow", false, "Shortcut: due tomorrow")
-	dueNextWeek := fs.Bool("next-week", false, "Shortcut: due in 7 days")
-	priority := fs.String("priority", "normal", "Priority (low|normal|high|urgent)")
-	searchTag := multiFlag{}
-	fs.Var(&searchTag, "tag", "Tag (repeatable)")
-	desc := fs.String("desc", "", "Description (short)")
-	details := fs.String("details", "", "Details (alias for --desc)")
-	if err := fs.Parse(args); err != nil {
-		return ExitUsage
-	}
-	rest := fs.Args()
-	if len(rest) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker add \"<title>\" --project <name> [--column todo] ...")
-		return ExitUsage
-	}
-	if strings.TrimSpace(*due) != "" && (*dueToday || *dueTomorrow || *dueNextWeek) {
-		fmt.Fprintln(os.Stderr, "Usage: --due cannot be combined with --today/--tomorrow/--next-week")
-		return ExitUsage
-	}
-	if *dueToday && (*dueTomorrow || *dueNextWeek) {
-		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
-		return ExitUsage
-	}
-	if *dueTomorrow && *dueNextWeek {
-		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
-		return ExitUsage
-	}
-	descText := strings.TrimSpace(*desc)
-	detailsText := strings.TrimSpace(*details)
-	if descText != "" && detailsText != "" && descText != detailsText {
-		fmt.Fprintln(os.Stderr, "Usage: choose only one of --desc or --details")
-		return ExitUsage
-	}
-	if detailsText != "" {
-		descText = detailsText
-	}
-	now := time.Now().UTC()
-	if *dueToday {
-		*due = now.Format("2006-01-02")
-	}
-	if *dueTomorrow {
-		*due = now.AddDate(0, 0, 1).Format("2006-01-02")
-	}
-	if *dueNextWeek {
-		*due = now.AddDate(0, 0, 7).Format("2006-01-02")
-	}
-	title := strings.Join(rest, " ")
-	input := store.AddTaskInput{
-		Title:       strings.TrimSpace(title),
-		Project:     strings.TrimSpace(*project),
-		Column:      strings.TrimSpace(*column),
-		Due:         strings.TrimSpace(*due),
-		Priority:    strings.TrimSpace(*priority),
-		Tags:        searchTag.Values,
-		Description: descText,
-	}
-	task, err := ws.AddTask(input)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "add:", err)
-		return ExitInternal
-	}
+func emitAddResult(ws *store.Workspace, gf GlobalFlags, task *store.Task, descText string) int {
 	if gf.NDJSON {
 		if gf.StdoutNDJSON {
 			b, _ := json.Marshal(task)
@@ -853,6 +799,239 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	}
 	fmt.Printf("Added %s (%s/%s)\n", titleText, task.Project, task.Column)
 	return ExitOK
+}
+
+func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--project":   true,
+		"--column":    true,
+		"--due":       true,
+		"--priority":  true,
+		"--tag":       true,
+		"--desc":      true,
+		"--details":   true,
+		"--text":      true,
+		"--today":     false,
+		"--tomorrow":  false,
+		"--next-week": false,
+	})
+	fs := flag.NewFlagSet("add", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug")
+	column := fs.String("column", "inbox", "Column id (inbox|todo|doing|blocked|done|archive)")
+	due := fs.String("due", "", "Due date (YYYY-MM-DD) or RFC3339")
+	dueToday := fs.Bool("today", false, "Shortcut: due today")
+	dueTomorrow := fs.Bool("tomorrow", false, "Shortcut: due tomorrow")
+	dueNextWeek := fs.Bool("next-week", false, "Shortcut: due in 7 days")
+	priority := fs.String("priority", "", "Priority (low|normal|high|urgent)")
+	searchTag := multiFlag{}
+	fs.Var(&searchTag, "tag", "Tag (repeatable)")
+	desc := fs.String("desc", "", "Description (short)")
+	details := fs.String("details", "", "Details (alias for --desc)")
+	text := fs.String("text", "", "Raw input using \" | \" separators")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	textValue := strings.TrimSpace(*text)
+	if textValue != "" && len(rest) > 0 {
+		fmt.Fprintln(os.Stderr, "Usage: provide either --text or a title, not both")
+		return ExitUsage
+	}
+	if textValue == "" && len(rest) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker add \"<title>\" --project <name> [--column todo] ...")
+		return ExitUsage
+	}
+	if strings.TrimSpace(*due) != "" && (*dueToday || *dueTomorrow || *dueNextWeek) {
+		fmt.Fprintln(os.Stderr, "Usage: --due cannot be combined with --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	if *dueToday && (*dueTomorrow || *dueNextWeek) {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	if *dueTomorrow && *dueNextWeek {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	descText := strings.TrimSpace(*desc)
+	detailsText := strings.TrimSpace(*details)
+	if descText != "" && detailsText != "" && descText != detailsText {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --desc or --details")
+		return ExitUsage
+	}
+	if detailsText != "" {
+		descText = detailsText
+	}
+	title := strings.Join(rest, " ")
+	textTitle, textDetails, textDue, textPriority, textTags := parseTextParts(textValue)
+	if textValue != "" {
+		title = textTitle
+	}
+	if strings.TrimSpace(title) == "" {
+		fmt.Fprintln(os.Stderr, "Usage: tasker add \"<title>\" --project <name> [--column todo] ...")
+		return ExitUsage
+	}
+	if descText == "" {
+		descText = textDetails
+	}
+	dueValue := strings.TrimSpace(*due)
+	if dueValue == "" {
+		dueValue = textDue
+	}
+	now := time.Now().UTC()
+	if *dueToday {
+		dueValue = now.Format("2006-01-02")
+	}
+	if *dueTomorrow {
+		dueValue = now.AddDate(0, 0, 1).Format("2006-01-02")
+	}
+	if *dueNextWeek {
+		dueValue = now.AddDate(0, 0, 7).Format("2006-01-02")
+	}
+	priorityValue := strings.TrimSpace(*priority)
+	if priorityValue == "" {
+		priorityValue = textPriority
+	}
+	if priorityValue == "" {
+		priorityValue = "normal"
+	}
+	tags := append([]string{}, searchTag.Values...)
+	if len(textTags) > 0 {
+		tags = append(tags, textTags...)
+	}
+	projectName := resolveProject(ws, *project)
+	input := store.AddTaskInput{
+		Title:       strings.TrimSpace(title),
+		Project:     strings.TrimSpace(projectName),
+		Column:      strings.TrimSpace(*column),
+		Due:         strings.TrimSpace(dueValue),
+		Priority:    strings.TrimSpace(priorityValue),
+		Tags:        tags,
+		Description: descText,
+	}
+	task, err := ws.AddTask(input)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "add:", err)
+		return ExitInternal
+	}
+	return emitAddResult(ws, gf, task, descText)
+}
+
+func cmdCapture(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--project":   true,
+		"--column":    true,
+		"--due":       true,
+		"--priority":  true,
+		"--tag":       true,
+		"--desc":      true,
+		"--details":   true,
+		"--text":      true,
+		"--today":     false,
+		"--tomorrow":  false,
+		"--next-week": false,
+	})
+	fs := flag.NewFlagSet("capture", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug")
+	column := fs.String("column", "inbox", "Column id (inbox|todo|doing|blocked|done|archive)")
+	due := fs.String("due", "", "Due date (YYYY-MM-DD) or RFC3339")
+	dueToday := fs.Bool("today", false, "Shortcut: due today")
+	dueTomorrow := fs.Bool("tomorrow", false, "Shortcut: due tomorrow")
+	dueNextWeek := fs.Bool("next-week", false, "Shortcut: due in 7 days")
+	priority := fs.String("priority", "", "Priority (low|normal|high|urgent)")
+	searchTag := multiFlag{}
+	fs.Var(&searchTag, "tag", "Tag (repeatable)")
+	desc := fs.String("desc", "", "Description (short)")
+	details := fs.String("details", "", "Details (alias for --desc)")
+	text := fs.String("text", "", "Raw input using \" | \" separators")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	textValue := strings.TrimSpace(*text)
+	if textValue != "" && len(rest) > 0 {
+		fmt.Fprintln(os.Stderr, "Usage: provide either --text or capture text, not both")
+		return ExitUsage
+	}
+	if textValue == "" {
+		textValue = strings.TrimSpace(strings.Join(rest, " "))
+	}
+	if textValue == "" {
+		fmt.Fprintln(os.Stderr, "Usage: tasker capture \"<title | details | due 2026-01-23>\" [--project <name>] ...")
+		return ExitUsage
+	}
+	if strings.TrimSpace(*due) != "" && (*dueToday || *dueTomorrow || *dueNextWeek) {
+		fmt.Fprintln(os.Stderr, "Usage: --due cannot be combined with --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	if *dueToday && (*dueTomorrow || *dueNextWeek) {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	if *dueTomorrow && *dueNextWeek {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	descText := strings.TrimSpace(*desc)
+	detailsText := strings.TrimSpace(*details)
+	if descText != "" && detailsText != "" && descText != detailsText {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --desc or --details")
+		return ExitUsage
+	}
+	if detailsText != "" {
+		descText = detailsText
+	}
+	title, textDetails, textDue, textPriority, textTags := parseTextParts(textValue)
+	if strings.TrimSpace(title) == "" {
+		fmt.Fprintln(os.Stderr, "Usage: tasker capture \"<title | details | due 2026-01-23>\" [--project <name>] ...")
+		return ExitUsage
+	}
+	if descText == "" {
+		descText = textDetails
+	}
+	dueValue := strings.TrimSpace(*due)
+	if dueValue == "" {
+		dueValue = textDue
+	}
+	now := time.Now().UTC()
+	if *dueToday {
+		dueValue = now.Format("2006-01-02")
+	}
+	if *dueTomorrow {
+		dueValue = now.AddDate(0, 0, 1).Format("2006-01-02")
+	}
+	if *dueNextWeek {
+		dueValue = now.AddDate(0, 0, 7).Format("2006-01-02")
+	}
+	priorityValue := strings.TrimSpace(*priority)
+	if priorityValue == "" {
+		priorityValue = textPriority
+	}
+	if priorityValue == "" {
+		priorityValue = "normal"
+	}
+	tags := append([]string{}, searchTag.Values...)
+	if len(textTags) > 0 {
+		tags = append(tags, textTags...)
+	}
+	projectName := resolveProject(ws, *project)
+	input := store.AddTaskInput{
+		Title:       strings.TrimSpace(title),
+		Project:     strings.TrimSpace(projectName),
+		Column:      strings.TrimSpace(*column),
+		Due:         strings.TrimSpace(dueValue),
+		Priority:    strings.TrimSpace(priorityValue),
+		Tags:        tags,
+		Description: descText,
+	}
+	task, err := ws.AddTask(input)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "capture:", err)
+		return ExitInternal
+	}
+	return emitAddResult(ws, gf, task, descText)
 }
 
 func cmdList(ws *store.Workspace, gf GlobalFlags, args []string) int {
@@ -1058,12 +1237,227 @@ func formatDueShort(due string) string {
 	return due
 }
 
+func splitPipeParts(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	raw := strings.Split(text, " | ")
+	parts := make([]string, 0, len(raw))
+	for _, part := range raw {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		parts = append(parts, part)
+	}
+	return parts
+}
+
+func cutPrefixFold(text string, prefix string) (string, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", false
+	}
+	lower := strings.ToLower(text)
+	if strings.HasPrefix(lower, prefix) {
+		return strings.TrimSpace(text[len(prefix):]), true
+	}
+	return "", false
+}
+
+func parseTagsPart(text string) []string {
+	text = strings.ReplaceAll(text, ",", " ")
+	fields := strings.Fields(text)
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		f = strings.TrimSpace(strings.TrimPrefix(f, "#"))
+		if f == "" {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func parsePriorityToken(text string) string {
+	switch strings.TrimSpace(strings.ToLower(text)) {
+	case "low", "l":
+		return "low"
+	case "normal", "n", "med", "medium":
+		return "normal"
+	case "high", "h":
+		return "high"
+	case "urgent", "u", "p0":
+		return "urgent"
+	default:
+		return ""
+	}
+}
+
+func parseDueToken(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	lower := strings.ToLower(text)
+	now := time.Now().UTC()
+	switch lower {
+	case "today":
+		return now.Format("2006-01-02")
+	case "tomorrow":
+		return now.AddDate(0, 0, 1).Format("2006-01-02")
+	case "next week", "next-week", "nextweek":
+		return now.AddDate(0, 0, 7).Format("2006-01-02")
+	default:
+		return text
+	}
+}
+
+func parseTextParts(text string) (string, string, string, string, []string) {
+	parts := splitPipeParts(text)
+	if len(parts) == 0 {
+		return "", "", "", "", nil
+	}
+	title := strings.TrimSpace(parts[0])
+	var details []string
+	var due string
+	var priority string
+	var tags []string
+	for _, part := range parts[1:] {
+		if part == "" {
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "due "); ok {
+			if due == "" {
+				due = parseDueToken(value)
+			} else {
+				details = append(details, part)
+			}
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "due:"); ok {
+			if due == "" {
+				due = parseDueToken(value)
+			} else {
+				details = append(details, part)
+			}
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "by "); ok {
+			if due == "" {
+				due = parseDueToken(value)
+			} else {
+				details = append(details, part)
+			}
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "by:"); ok {
+			if due == "" {
+				due = parseDueToken(value)
+			} else {
+				details = append(details, part)
+			}
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "priority "); ok {
+			if priority == "" {
+				if parsed := parsePriorityToken(value); parsed != "" {
+					priority = parsed
+				} else {
+					details = append(details, part)
+				}
+			} else {
+				details = append(details, part)
+			}
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "priority:"); ok {
+			if priority == "" {
+				if parsed := parsePriorityToken(value); parsed != "" {
+					priority = parsed
+				} else {
+					details = append(details, part)
+				}
+			} else {
+				details = append(details, part)
+			}
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "pri "); ok {
+			if priority == "" {
+				if parsed := parsePriorityToken(value); parsed != "" {
+					priority = parsed
+				} else {
+					details = append(details, part)
+				}
+			} else {
+				details = append(details, part)
+			}
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "pri:"); ok {
+			if priority == "" {
+				if parsed := parsePriorityToken(value); parsed != "" {
+					priority = parsed
+				} else {
+					details = append(details, part)
+				}
+			} else {
+				details = append(details, part)
+			}
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "tag "); ok {
+			tags = append(tags, parseTagsPart(value)...)
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "tag:"); ok {
+			tags = append(tags, parseTagsPart(value)...)
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "tags "); ok {
+			tags = append(tags, parseTagsPart(value)...)
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "tags:"); ok {
+			tags = append(tags, parseTagsPart(value)...)
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(part), "#") {
+			tags = append(tags, parseTagsPart(part)...)
+			continue
+		}
+		details = append(details, part)
+	}
+	detailText := strings.TrimSpace(strings.Join(details, " — "))
+	return title, detailText, due, priority, tags
+}
+
 func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker show <selector>")
+	args = reorderFlags(args, map[string]bool{
+		"--project": true,
+		"--column":  true,
+		"--status":  true,
+		"--all":     false,
+	})
+	fs := flag.NewFlagSet("show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug (use none|all for all projects)")
+	column := fs.String("column", "", "Column id")
+	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
+	all := fs.Bool("all", false, "Include archived")
+	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
-	task, err := ws.GetTaskBySelector(args[0], selectorProject(ws))
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>")
+		return ExitUsage
+	}
+	selector := rest[0]
+	filter := selectorFilter(ws, *project, *column, *status, *all)
+	task, err := ws.GetTaskBySelectorFiltered(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "show: not found")
@@ -1100,12 +1494,104 @@ func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	return ExitOK
 }
 
-func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
-	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker mv <selector> <column>")
+func cmdResolve(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--project": true,
+		"--column":  true,
+		"--status":  true,
+		"--all":     false,
+	})
+	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug (use none|all for all projects)")
+	column := fs.String("column", "", "Column id")
+	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
+	all := fs.Bool("all", false, "Include archived")
+	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
-	taskRef, err := ws.GetTaskBySelector(args[0], selectorProject(ws))
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>")
+		return ExitUsage
+	}
+	selector := rest[0]
+	filter := selectorFilter(ws, *project, *column, *status, *all)
+	matches, err := ws.ResolveTasks(selector, filter)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr, "resolve: not found")
+			return ExitNotFound
+		}
+		if errors.Is(err, store.ErrInvalid) {
+			fmt.Fprintln(os.Stderr, "resolve: invalid selector")
+			return ExitUsage
+		}
+		fmt.Fprintln(os.Stderr, "resolve:", err)
+		return ExitInternal
+	}
+	type resolveMatch struct {
+		ID       string   `json:"id"`
+		Title    string   `json:"title"`
+		Project  string   `json:"project"`
+		Column   string   `json:"column"`
+		Status   string   `json:"status"`
+		Due      string   `json:"due"`
+		Priority string   `json:"priority"`
+		Tags     []string `json:"tags"`
+	}
+	out := make([]resolveMatch, 0, len(matches))
+	for _, t := range matches {
+		out = append(out, resolveMatch{
+			ID:       t.ID,
+			Title:    t.Title,
+			Project:  t.Project,
+			Column:   t.Column,
+			Status:   t.Status,
+			Due:      t.Due,
+			Priority: t.Priority,
+			Tags:     t.Tags,
+		})
+	}
+	payload := map[string]any{
+		"selector": selector,
+		"count":    len(out),
+		"matches":  out,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(payload)
+	if len(out) == 0 {
+		return ExitNotFound
+	}
+	return ExitOK
+}
+
+func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--project": true,
+		"--column":  true,
+		"--status":  true,
+		"--all":     false,
+	})
+	fs := flag.NewFlagSet("mv", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug (use none|all for all projects)")
+	column := fs.String("column", "", "Column id (filter)")
+	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
+	all := fs.Bool("all", false, "Include archived")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	if len(rest) < 2 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector> <column>")
+		return ExitUsage
+	}
+	selector := rest[0]
+	destColumn := rest[1]
+	filter := selectorFilter(ws, *project, *column, *status, *all)
+	taskRef, err := ws.GetTaskBySelectorFiltered(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "mv: not found")
@@ -1121,7 +1607,7 @@ func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "mv:", err)
 		return ExitInternal
 	}
-	task, err := ws.MoveTask(taskRef.ID, args[1])
+	task, err := ws.MoveTask(taskRef.ID, destColumn)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "mv: not found")
@@ -1160,11 +1646,29 @@ func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
 }
 
 func cmdDone(ws *store.Workspace, gf GlobalFlags, args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker done <selector>")
+	args = reorderFlags(args, map[string]bool{
+		"--project": true,
+		"--column":  true,
+		"--status":  true,
+		"--all":     false,
+	})
+	fs := flag.NewFlagSet("done", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug (use none|all for all projects)")
+	column := fs.String("column", "", "Column id (filter)")
+	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
+	all := fs.Bool("all", false, "Include archived")
+	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
-	taskRef, err := ws.GetTaskBySelector(args[0], selectorProject(ws))
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>")
+		return ExitUsage
+	}
+	selector := rest[0]
+	filter := selectorFilter(ws, *project, *column, *status, *all)
+	taskRef, err := ws.GetTaskBySelectorFiltered(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "done: not found")
@@ -1228,13 +1732,30 @@ func cmdNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector> \"<text>\"")
 		return ExitUsage
 	}
-	if len(args) < 3 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector> \"<text>\"")
+	args = reorderFlags(args[1:], map[string]bool{
+		"--project": true,
+		"--column":  true,
+		"--status":  true,
+		"--all":     false,
+	})
+	fs := flag.NewFlagSet("note add", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug (use none|all for all projects)")
+	column := fs.String("column", "", "Column id (filter)")
+	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
+	all := fs.Bool("all", false, "Include archived")
+	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
-	id := args[1]
-	text := strings.Join(args[2:], " ")
-	taskRef, err := ws.GetTaskBySelector(id, selectorProject(ws))
+	rest := fs.Args()
+	if len(rest) < 2 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector> \"<text>\"")
+		return ExitUsage
+	}
+	selector := rest[0]
+	text := strings.Join(rest[1:], " ")
+	filter := selectorFilter(ws, *project, *column, *status, *all)
+	taskRef, err := ws.GetTaskBySelectorFiltered(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "note: not found")
