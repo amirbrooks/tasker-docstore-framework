@@ -17,11 +17,11 @@ Examples:
 - `/task project add "Work"`
 - `/task add "Draft proposal" --project Work --column todo --due 2026-01-23 --priority high --tag client`
 - `/task ls --project Work`
-- `/task board --project Work --ascii`
-- `/task tasks --project Work`   # due today + overdue
-- `/task week --project Work --days 7`
-- `/task done tsk_01J4F3N8`
+- `/task board --project Work --format telegram`
+- `/task tasks --project Work --format telegram`   # due today + overdue
+- `/task week --project Work --days 7 --format telegram`
+- `/task done "Draft proposal"`
 
 Output modes:
-- `--json`, `--ndjson`, `--plain`, `--ascii`
+- `--json`, `--ndjson`, `--plain`, `--ascii`, `--format telegram`
 - JSON/NDJSON write to `<root>/exports` by default (no stdout JSON unless `--stdout-json`/`--stdout-ndjson` is used).

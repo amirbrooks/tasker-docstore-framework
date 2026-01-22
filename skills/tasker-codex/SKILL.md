@@ -25,14 +25,14 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
   - Run: `./tasker week [--project <name>] [--days N] [--group <project|column>] [--totals]`
 - “add task …”
   - Run: `./tasker add "<title>" --project <name> [--column <col>] [--due <YYYY-MM-DD> | --today | --tomorrow | --next-week] [--priority <p>] [--tag <t>]`
-- “mark done”, “complete task <id>”
-  - Run: `./tasker done <id-or-prefix>`
-- “move task <id> to <column>”
-  - Run: `./tasker mv <id-or-prefix> <column>`
-- “show task <id>”
-  - Run: `./tasker show <id-or-prefix>`
-- “add note to task <id>”
-  - Run: `./tasker note add <id-or-prefix> "<text>"`
+- “mark done”, “complete task <title>”
+  - Run: `./tasker done "<title>"`
+- “move task <title> to <column>”
+  - Run: `./tasker mv "<title>" <column>`
+- “show task <title>”
+  - Run: `./tasker show "<title>"`
+- “add note to task <title>”
+  - Run: `./tasker note add "<title>" "<text>"`
 - “show board”
   - Run: `./tasker board --project <name> [--ascii]`
 - “how do I start?”, “onboarding”

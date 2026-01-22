@@ -101,7 +101,7 @@ Natural language (preferred):
 Slash command (explicit):
 - `/task ls --project Work`
 - `/task add "Draft proposal" --project Work --column todo`
-- `/task done tsk_01J4F3N8`
+- `/task done "Draft proposal"`
 - `/task tasks --project Work` (due today + overdue)
 - `/task week --project Work --days 7` (upcoming + overdue)
 - `/task tasks today --open --group project --totals`
