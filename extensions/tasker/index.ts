@@ -93,13 +93,20 @@ function runTasker(opts: { binary: string; rootPath: string; timeoutMs: number; 
   return new Promise<{ stdout: string; stderr: string; code: number | null }>((resolve) => {
     const args: string[] = ["--root", opts.rootPath, ...opts.argv];
 
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const finish = (result: { stdout: string; stderr: string; code: number | null }) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
     const child = spawn(opts.binary, args, {
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
-
-    let stdout = "";
-    let stderr = "";
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -111,9 +118,18 @@ function runTasker(opts: { binary: string; rootPath: string; timeoutMs: number; 
       try { child.kill("SIGKILL"); } catch {}
     }, opts.timeoutMs);
 
+    child.on("error", (err: any) => {
+      clearTimeout(to);
+      const msg =
+        err?.code === "ENOENT"
+          ? `tasker_cmd: binary not found (${opts.binary}). Set plugin config "binary" or add it to PATH.`
+          : `tasker_cmd: ${err?.message ?? String(err)}`;
+      finish({ stdout, stderr: msg, code: 127 });
+    });
+
     child.on("close", (code) => {
       clearTimeout(to);
-      resolve({ stdout, stderr, code });
+      finish({ stdout, stderr, code });
     });
   });
 }
@@ -126,7 +142,8 @@ export default function (api: PluginApi) {
       parameters: ToolParams,
       async execute(_id: string, params: any) {
         const cfg = api.config?.() ?? {};
-        const binary = (cfg.binary && String(cfg.binary)) || "tasker";
+        const envBinary = process.env.TASKER_BIN ? String(process.env.TASKER_BIN).trim() : "";
+        const binary = (cfg.binary && String(cfg.binary)) || envBinary || "tasker";
         const rootPath = (cfg.rootPath && String(cfg.rootPath)) || defaultRoot();
         const timeoutMs = cfg.timeoutMs ? Number(cfg.timeoutMs) : 15000;
         const allowWrite = cfg.allowWrite !== undefined ? Boolean(cfg.allowWrite) : true;
