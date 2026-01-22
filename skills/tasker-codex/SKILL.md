@@ -24,7 +24,8 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
 - “what’s our week looking like”, “upcoming tasks”, “agenda”
   - Run: `./tasker week [--project <name>] [--days N] [--group <project|column>] [--totals]`
 - “add task …”
-  - Run: `./tasker add "<title>" --project <name> [--column <col>] [--due <YYYY-MM-DD> | --today | --tomorrow | --next-week] [--priority <p>] [--tag <t>]`
+  - Run: `./tasker add "<title>" --project <name> [--column <col>] [--due <YYYY-MM-DD> | --today | --tomorrow | --next-week] [--priority <p>] [--tag <t>] [--details "<text>"]`
+  - If the user includes ` | `, split into title (left) and details (right).
 - “mark done”, “complete task <title>”
   - Run: `./tasker done "<title>"`
 - “move task <title> to <column>”

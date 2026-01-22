@@ -15,7 +15,7 @@ This profile is slash-only (natural language disabled). For NL, use `skills/task
 Examples:
 - `/task init`
 - `/task project add "Work"`
-- `/task add "Draft proposal" --project Work --column todo --due 2026-01-23 --priority high --tag client`
+- `/task add "Draft proposal" --project Work --column todo --due 2026-01-23 --priority high --tag client --details "Send a revised scope summary."`
 - `/task ls --project Work`
 - `/task board --project Work --format telegram`
 - `/task tasks --project Work --format telegram`   # due today + overdue
