@@ -1,6 +1,6 @@
 {
   "name": "@amirbrooks/tasker-docstore",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tasker docstore CLI (downloads prebuilt binaries)",
   "bin": {
     "tasker": "bin/tasker.js"
