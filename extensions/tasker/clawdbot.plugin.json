@@ -1,0 +1,46 @@
+{
+  "id": "tasker",
+  "name": "tasker",
+  "description": "Tasker plugin tool: exposes tasker_cmd for /task tool-dispatch",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "binary": {
+        "type": "string",
+        "description": "tasker binary name or absolute path (default: tasker)"
+      },
+      "rootPath": {
+        "type": "string",
+        "description": "Store root path passed as --root to tasker (default: ~/.tasker)"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 600000,
+        "description": "Max runtime for tasker CLI invocations"
+      },
+      "allowWrite": {
+        "type": "boolean",
+        "description": "If false, block mutating subcommands (add/edit/done/mv/note add/etc.)"
+      }
+    }
+  },
+  "uiHints": {
+    "binary": {
+      "label": "tasker binary",
+      "placeholder": "tasker"
+    },
+    "rootPath": {
+      "label": "Store root path",
+      "placeholder": "~/.tasker"
+    },
+    "timeoutMs": {
+      "label": "Timeout (ms)"
+    },
+    "allowWrite": {
+      "label": "Allow write operations"
+    }
+  }
+}

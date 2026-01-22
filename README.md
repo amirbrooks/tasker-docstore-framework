@@ -24,6 +24,11 @@ Install (from source checkout, local):
 go install ./cmd/tasker
 ```
 
+Install (Go, from GitHub):
+```bash
+go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
+```
+
 2) Initialize store (defaults to `~/.tasker`):
 ```bash
 ./tasker init

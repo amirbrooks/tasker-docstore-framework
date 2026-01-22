@@ -11,7 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"example.com/tasker/internal/store"
+	"github.com/amirbrooks/tasker-docstore-framework/internal/store"
 )
 
 // Exit codes

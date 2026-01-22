@@ -1,4 +1,4 @@
-module example.com/tasker
+module github.com/amirbrooks/tasker-docstore-framework
 
 go 1.22
 
