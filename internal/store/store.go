@@ -56,7 +56,15 @@ type SelectorFilter struct {
 	Column          string
 	Status          string
 	IncludeArchived bool
+	Match           string
 }
+
+const (
+	MatchExact    = "exact"
+	MatchPrefix   = "prefix"
+	MatchContains = "contains"
+	MatchSearch   = "search"
+)
 
 type Config struct {
 	Schema  int          `json:"schema"`
@@ -423,9 +431,9 @@ func (w *Workspace) resolveSelectorCandidates(selector string, filter SelectorFi
 		if len(matches) > 0 {
 			return matches, nil
 		}
-		return w.findTasksByTitleFiltered(selector, filter)
+		return w.findTasksByMatchMode(selector, filter)
 	}
-	matches, err := w.findTasksByTitleFiltered(selector, filter)
+	matches, err := w.findTasksByMatchMode(selector, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -446,15 +454,44 @@ func normalizeSelectorFilter(filter SelectorFilter) SelectorFilter {
 	if status == "archived" || column == "archive" {
 		includeArchived = true
 	}
+	match := normalizeMatchMode(filter.Match)
 	return SelectorFilter{
 		Project:         project,
 		Column:          column,
 		Status:          status,
 		IncludeArchived: includeArchived,
+		Match:           match,
 	}
 }
 
-func (w *Workspace) findTasksByTitleFiltered(selector string, filter SelectorFilter) ([]Task, error) {
+func normalizeMatchMode(match string) string {
+	match = strings.TrimSpace(strings.ToLower(match))
+	switch match {
+	case MatchExact, MatchPrefix, MatchContains, MatchSearch:
+		return match
+	case "":
+		return MatchExact
+	default:
+		return MatchExact
+	}
+}
+
+func (w *Workspace) findTasksByMatchMode(selector string, filter SelectorFilter) ([]Task, error) {
+	switch filter.Match {
+	case MatchSearch:
+		return w.findTasksBySearchFiltered(selector, filter)
+	case MatchPrefix:
+		return w.findTasksByTitlePrefixFiltered(selector, filter)
+	case MatchContains:
+		return w.findTasksByTitleContainsFiltered(selector, filter)
+	case MatchExact:
+		return w.findTasksByTitleExactFiltered(selector, filter)
+	default:
+		return w.findTasksByTitleExactFiltered(selector, filter)
+	}
+}
+
+func (w *Workspace) findTasksByTitleExactFiltered(selector string, filter SelectorFilter) ([]Task, error) {
 	listFilter := ListFilter{
 		Project: filter.Project,
 		Column:  filter.Column,
@@ -479,6 +516,79 @@ func (w *Workspace) findTasksByTitleFiltered(selector string, filter SelectorFil
 		}
 	}
 	return sortSelectorMatches(matches), nil
+}
+
+func (w *Workspace) findTasksByTitlePrefixFiltered(selector string, filter SelectorFilter) ([]Task, error) {
+	listFilter := ListFilter{
+		Project: filter.Project,
+		Column:  filter.Column,
+		Status:  filter.Status,
+		All:     filter.IncludeArchived,
+	}
+	tasks, err := w.ListTasks(listFilter)
+	if err != nil {
+		return nil, err
+	}
+	sel := strings.TrimSpace(selector)
+	selLower := strings.ToLower(sel)
+	selSlug := slugify(sel)
+	var matches []Task
+	for _, t := range tasks {
+		title := strings.TrimSpace(t.Title)
+		if title == "" {
+			continue
+		}
+		titleLower := strings.ToLower(title)
+		titleSlug := slugify(title)
+		if strings.HasPrefix(titleLower, selLower) || strings.HasPrefix(titleSlug, selSlug) {
+			matches = append(matches, t)
+		}
+	}
+	return sortSelectorMatches(matches), nil
+}
+
+func (w *Workspace) findTasksByTitleContainsFiltered(selector string, filter SelectorFilter) ([]Task, error) {
+	listFilter := ListFilter{
+		Project: filter.Project,
+		Column:  filter.Column,
+		Status:  filter.Status,
+		All:     filter.IncludeArchived,
+	}
+	tasks, err := w.ListTasks(listFilter)
+	if err != nil {
+		return nil, err
+	}
+	sel := strings.TrimSpace(selector)
+	selLower := strings.ToLower(sel)
+	selSlug := slugify(sel)
+	var matches []Task
+	for _, t := range tasks {
+		title := strings.TrimSpace(t.Title)
+		if title == "" {
+			continue
+		}
+		titleLower := strings.ToLower(title)
+		titleSlug := slugify(title)
+		if strings.Contains(titleLower, selLower) || strings.Contains(titleSlug, selSlug) {
+			matches = append(matches, t)
+		}
+	}
+	return sortSelectorMatches(matches), nil
+}
+
+func (w *Workspace) findTasksBySearchFiltered(selector string, filter SelectorFilter) ([]Task, error) {
+	listFilter := ListFilter{
+		Project: filter.Project,
+		Column:  filter.Column,
+		Status:  filter.Status,
+		All:     filter.IncludeArchived,
+		Search:  strings.TrimSpace(selector),
+	}
+	tasks, err := w.ListTasks(listFilter)
+	if err != nil {
+		return nil, err
+	}
+	return sortSelectorMatches(tasks), nil
 }
 
 func (w *Workspace) findTasksByPrefixFiltered(prefix string, filter SelectorFilter) ([]Task, error) {

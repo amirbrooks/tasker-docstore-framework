@@ -182,13 +182,34 @@ func resolveSelectorProject(ws *store.Workspace, project string) string {
 	}
 }
 
-func selectorFilter(ws *store.Workspace, project string, column string, status string, includeArchived bool) store.SelectorFilter {
+func normalizeMatchMode(mode string) (string, error) {
+	mode = strings.TrimSpace(strings.ToLower(mode))
+	switch mode {
+	case "", "exact":
+		return store.MatchExact, nil
+	case "prefix", "starts", "starts-with", "startswith":
+		return store.MatchPrefix, nil
+	case "contains", "substring", "substr":
+		return store.MatchContains, nil
+	case "search", "text", "body":
+		return store.MatchSearch, nil
+	default:
+		return "", fmt.Errorf("unknown --match %q (use exact|prefix|contains|search)", mode)
+	}
+}
+
+func selectorFilter(ws *store.Workspace, project string, column string, status string, includeArchived bool, match string) (store.SelectorFilter, error) {
+	matchMode, err := normalizeMatchMode(match)
+	if err != nil {
+		return store.SelectorFilter{}, err
+	}
 	return store.SelectorFilter{
 		Project:         resolveSelectorProject(ws, project),
 		Column:          strings.TrimSpace(column),
 		Status:          strings.TrimSpace(status),
 		IncludeArchived: includeArchived,
-	}
+		Match:           matchMode,
+	}, nil
 }
 
 func handleMatchConflict(cmd string, err error) bool {
@@ -216,7 +237,7 @@ func handleMatchConflict(cmd string, err error) bool {
 		}
 		fmt.Fprintf(os.Stderr, "  - %s: %s%s\n", loc, title, due)
 	}
-	fmt.Fprintln(os.Stderr, "Tip: use a more specific title, pass --project/--column/--status, or set TASKER_PROJECT/agent.default_project.")
+	fmt.Fprintln(os.Stderr, "Tip: use a more specific title, pass --project/--column/--status/--match, or set TASKER_PROJECT/agent.default_project.")
 	return true
 }
 func Run(args []string) int {
@@ -313,11 +334,11 @@ Commands:
   add --text "<title | details | due 2026-01-23>" --project <name> [--column <col>] [--priority <p>] [--tag <t>...]
   capture "<title | details | due 2026-01-23>" [--project <name>] [--column <col>] [--priority <p>] [--tag <t>...]
   ls [--project <name>] [--column <col>] [--status <s>] [--tag <t>] [--search <q>] [--all]
-  show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>
-  resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>
-  mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector> <column>
-  done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>
-  note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector> "<text>"
+  show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>
+  resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>
+  mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector> <column>
+  done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>
+  note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector> "<text>"
   board --project <name> [--open|--all]
   today [--project <name>] [--open|--all] [--group project|column|none] [--totals]
   tasks [today|week] [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
@@ -1440,6 +1461,7 @@ func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--column":  true,
 		"--status":  true,
 		"--all":     false,
+		"--match":   true,
 	})
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -1447,16 +1469,21 @@ func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
+	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
 	rest := fs.Args()
 	if len(rest) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>")
+		fmt.Fprintln(os.Stderr, "Usage: tasker show [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>")
 		return ExitUsage
 	}
 	selector := rest[0]
-	filter := selectorFilter(ws, *project, *column, *status, *all)
+	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "show:", err)
+		return ExitUsage
+	}
 	task, err := ws.GetTaskBySelectorFiltered(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -1500,6 +1527,7 @@ func cmdResolve(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--column":  true,
 		"--status":  true,
 		"--all":     false,
+		"--match":   true,
 	})
 	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -1507,16 +1535,21 @@ func cmdResolve(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
+	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
 	rest := fs.Args()
 	if len(rest) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>")
+		fmt.Fprintln(os.Stderr, "Usage: tasker resolve [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>")
 		return ExitUsage
 	}
 	selector := rest[0]
-	filter := selectorFilter(ws, *project, *column, *status, *all)
+	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "resolve:", err)
+		return ExitUsage
+	}
 	matches, err := ws.ResolveTasks(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -1573,6 +1606,7 @@ func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--column":  true,
 		"--status":  true,
 		"--all":     false,
+		"--match":   true,
 	})
 	fs := flag.NewFlagSet("mv", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -1580,17 +1614,22 @@ func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id (filter)")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
+	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
 	rest := fs.Args()
 	if len(rest) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector> <column>")
+		fmt.Fprintln(os.Stderr, "Usage: tasker mv [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector> <column>")
 		return ExitUsage
 	}
 	selector := rest[0]
 	destColumn := rest[1]
-	filter := selectorFilter(ws, *project, *column, *status, *all)
+	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mv:", err)
+		return ExitUsage
+	}
 	taskRef, err := ws.GetTaskBySelectorFiltered(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -1651,6 +1690,7 @@ func cmdDone(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--column":  true,
 		"--status":  true,
 		"--all":     false,
+		"--match":   true,
 	})
 	fs := flag.NewFlagSet("done", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -1658,16 +1698,21 @@ func cmdDone(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id (filter)")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
+	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
 	rest := fs.Args()
 	if len(rest) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector>")
+		fmt.Fprintln(os.Stderr, "Usage: tasker done [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector>")
 		return ExitUsage
 	}
 	selector := rest[0]
-	filter := selectorFilter(ws, *project, *column, *status, *all)
+	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "done:", err)
+		return ExitUsage
+	}
 	taskRef, err := ws.GetTaskBySelectorFiltered(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -1737,6 +1782,7 @@ func cmdNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--column":  true,
 		"--status":  true,
 		"--all":     false,
+		"--match":   true,
 	})
 	fs := flag.NewFlagSet("note add", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -1744,17 +1790,22 @@ func cmdNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "", "Column id (filter)")
 	status := fs.String("status", "", "Status (open|doing|blocked|done|archived)")
 	all := fs.Bool("all", false, "Include archived")
+	match := fs.String("match", "exact", "Match mode (exact|prefix|contains|search)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
 	rest := fs.Args()
 	if len(rest) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] <selector> \"<text>\"")
+		fmt.Fprintln(os.Stderr, "Usage: tasker note add [--project <name>|none|all] [--column <col>] [--status <s>] [--all] [--match <m>] <selector> \"<text>\"")
 		return ExitUsage
 	}
 	selector := rest[0]
 	text := strings.Join(rest[1:], " ")
-	filter := selectorFilter(ws, *project, *column, *status, *all)
+	filter, err := selectorFilter(ws, *project, *column, *status, *all, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "note:", err)
+		return ExitUsage
+	}
 	taskRef, err := ws.GetTaskBySelectorFiltered(selector, filter)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
