@@ -156,6 +156,8 @@ func Run(args []string) int {
 		return cmdInit(ws, gf, cmdArgs)
 	case "onboarding":
 		return cmdOnboarding(ws, gf, cmdArgs)
+	case "config", "cfg":
+		return cmdConfig(ws, gf, cmdArgs)
 	case "project":
 		return cmdProject(ws, gf, cmdArgs)
 	case "add":
@@ -206,6 +208,7 @@ Global flags:
 Commands:
   init
   onboarding
+  config show
   project add "<name>"
   project ls
   add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...]
@@ -316,6 +319,117 @@ func cmdOnboarding(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	fmt.Println()
 	fmt.Println("Tip: Use --root or TASKER_ROOT to point to a specific store.")
 	fmt.Println("Optional: Add agent defaults in config.json (default project/view, open-only, grouping).")
+	fmt.Println("See current config: tasker config show")
+	return ExitOK
+}
+
+func cmdConfig(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker config show")
+		return ExitUsage
+	}
+	sub := args[0]
+	if sub != "show" {
+		fmt.Fprintln(os.Stderr, "Usage: tasker config show")
+		return ExitUsage
+	}
+	cfg := ws.Config()
+	cfgPath := filepath.Join(ws.Root, "config.json")
+	_, err := os.Stat(cfgPath)
+	exists := err == nil
+
+	payload := map[string]any{
+		"root":        ws.Root,
+		"config_path": cfgPath,
+		"exists":      exists,
+		"config":      cfg,
+	}
+
+	if gf.NDJSON {
+		if gf.StdoutNDJSON {
+			b, _ := json.Marshal(payload)
+			fmt.Println(string(b))
+		} else {
+			path, err := writeNDJSONExport(gf, "config", []any{payload})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "config show:", err)
+				return ExitInternal
+			}
+			if !gf.Quiet {
+				fmt.Println("Wrote NDJSON to:", path)
+			}
+		}
+		return ExitOK
+	}
+
+	if gf.JSON {
+		if gf.StdoutJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(payload)
+		} else {
+			path, err := writeJSONExport(gf, "config", payload)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "config show:", err)
+				return ExitInternal
+			}
+			if !gf.Quiet {
+				fmt.Println("Wrote JSON to:", path)
+			}
+		}
+		return ExitOK
+	}
+
+	if gf.Plain {
+		w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+		fmt.Fprintln(w, "KEY\tVALUE")
+		fmt.Fprintf(w, "root\t%s\n", ws.Root)
+		fmt.Fprintf(w, "config_path\t%s\n", cfgPath)
+		fmt.Fprintf(w, "exists\t%t\n", exists)
+		if cfg.Agent != nil {
+			fmt.Fprintf(w, "agent.require_explicit\t%t\n", cfg.Agent.RequireExplicit)
+			fmt.Fprintf(w, "agent.default_project\t%s\n", cfg.Agent.DefaultProject)
+			fmt.Fprintf(w, "agent.default_view\t%s\n", cfg.Agent.DefaultView)
+			fmt.Fprintf(w, "agent.week_days\t%d\n", cfg.Agent.WeekDays)
+			fmt.Fprintf(w, "agent.open_only\t%t\n", cfg.Agent.OpenOnly)
+			fmt.Fprintf(w, "agent.summary_group\t%s\n", cfg.Agent.SummaryGroup)
+			fmt.Fprintf(w, "agent.summary_totals\t%t\n", cfg.Agent.SummaryTotals)
+		} else {
+			fmt.Fprintf(w, "agent\t(none)\n")
+		}
+		for _, c := range cfg.Columns {
+			fmt.Fprintf(w, "column.%s\tname=%s dir=%s status=%s\n", c.ID, c.Name, c.Dir, c.Status)
+		}
+		_ = w.Flush()
+		return ExitOK
+	}
+
+	fmt.Println("Config")
+	fmt.Println("  Root:", ws.Root)
+	if exists {
+		fmt.Println("  Config file:", cfgPath)
+	} else {
+		fmt.Println("  Config file:", cfgPath, "(not found; defaults shown)")
+	}
+	fmt.Println()
+	if cfg.Agent == nil {
+		fmt.Println("Agent defaults: (not set)")
+		fmt.Println("  Add an agent block to config.json to set default view/project and grouping.")
+	} else {
+		fmt.Println("Agent defaults:")
+		fmt.Printf("  require_explicit: %t\n", cfg.Agent.RequireExplicit)
+		fmt.Printf("  default_project: %s\n", cfg.Agent.DefaultProject)
+		fmt.Printf("  default_view: %s\n", cfg.Agent.DefaultView)
+		fmt.Printf("  week_days: %d\n", cfg.Agent.WeekDays)
+		fmt.Printf("  open_only: %t\n", cfg.Agent.OpenOnly)
+		fmt.Printf("  summary_group: %s\n", cfg.Agent.SummaryGroup)
+		fmt.Printf("  summary_totals: %t\n", cfg.Agent.SummaryTotals)
+	}
+	fmt.Println()
+	fmt.Println("Columns:")
+	for _, c := range cfg.Columns {
+		fmt.Printf("  %s: %s (dir=%s, status=%s)\n", c.ID, c.Name, c.Dir, c.Status)
+	}
 	return ExitOK
 }
 

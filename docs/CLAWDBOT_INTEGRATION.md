@@ -65,3 +65,4 @@ Restart the relevant processes/sessions after enabling plugins/skills.
 - `/task tasks --project Work` (due today + overdue)
 - `/task week --project Work --days 7` (upcoming + overdue)
 - `/task tasks today --open --group project --totals`
+- `/task config show`

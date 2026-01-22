@@ -24,6 +24,9 @@ Create root config and a default `personal` project.
 ### `tasker onboarding`
 Print quickstart instructions and common commands.
 
+### `tasker config show`
+Print current config (defaults shown if config file is missing). Supports `--plain` and `--json` export.
+
 ### `tasker project add "<name>"`
 Create a project (slugified).
 

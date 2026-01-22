@@ -36,6 +36,8 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
   - Run: `./tasker board --project <name> [--ascii]`
 - “how do I start?”, “onboarding”
   - Run: `./tasker onboarding`
+- “show config”, “what are my settings?”
+  - Run: `./tasker config show`
 
 ## Output rules (Codex interface)
 - Prefer human output only. Do not print raw JSON to the Codex interface.

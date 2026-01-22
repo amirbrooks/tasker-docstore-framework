@@ -39,6 +39,11 @@ Optional onboarding:
 ./tasker onboarding
 ```
 
+View config (human summary):
+```bash
+./tasker config show
+```
+
 3) Create a project:
 ```bash
 ./tasker project add "Work"
