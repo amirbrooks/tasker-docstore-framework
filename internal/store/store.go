@@ -185,6 +185,19 @@ func (w *Workspace) Config() Config {
 	return w.cfg
 }
 
+func (w *Workspace) SaveConfig(cfg Config) error {
+	if cfg.Schema == 0 {
+		cfg.Schema = 1
+	}
+	if len(cfg.Columns) == 0 {
+		cfg.Columns = defaultConfig().Columns
+	}
+	w.cfg = cfg
+	b, _ := json.MarshalIndent(cfg, "", "  ")
+	cfgPath := filepath.Join(w.Root, "config.json")
+	return atomicWriteFile(cfgPath, b, 0o644)
+}
+
 func (w *Workspace) CreateProject(name string) (*Project, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -209,6 +210,7 @@ Commands:
   init [--project <name>]
   onboarding
   config show
+  config set <key> <value>
   project add "<name>"
   project ls
   add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...]
@@ -324,14 +326,20 @@ func cmdOnboarding(ws *store.Workspace, gf GlobalFlags, args []string) int {
 
 func cmdConfig(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker config show")
+		fmt.Fprintln(os.Stderr, "Usage: tasker config <show|set> ...")
 		return ExitUsage
 	}
 	sub := args[0]
-	if sub != "show" {
-		fmt.Fprintln(os.Stderr, "Usage: tasker config show")
+	switch sub {
+	case "show":
+		// handled below
+	case "set":
+		return cmdConfigSet(ws, gf, args[1:])
+	default:
+		fmt.Fprintln(os.Stderr, "Usage: tasker config <show|set> ...")
 		return ExitUsage
 	}
+
 	cfg := ws.Config()
 	cfgPath := filepath.Join(ws.Root, "config.json")
 	_, err := os.Stat(cfgPath)
@@ -430,6 +438,99 @@ func cmdConfig(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Printf("  %s: %s (dir=%s, status=%s)\n", c.ID, c.Name, c.Dir, c.Status)
 	}
 	return ExitOK
+}
+
+func cmdConfigSet(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker config set <key> <value>")
+		return ExitUsage
+	}
+	key := strings.ToLower(strings.TrimSpace(args[0]))
+	value := strings.TrimSpace(strings.Join(args[1:], " "))
+	cfg := ws.Config()
+	if cfg.Agent == nil {
+		cfg.Agent = &store.AgentConfig{}
+	}
+
+	switch key {
+	case "agent.require_explicit":
+		v, ok := parseBool(value)
+		if !ok {
+			return configSetInvalid("agent.require_explicit", value)
+		}
+		cfg.Agent.RequireExplicit = v
+	case "agent.default_project":
+		if value == "" || value == "none" || value == "null" {
+			cfg.Agent.DefaultProject = ""
+		} else {
+			cfg.Agent.DefaultProject = value
+		}
+	case "agent.default_view":
+		switch strings.ToLower(value) {
+		case "today", "week":
+			cfg.Agent.DefaultView = strings.ToLower(value)
+		case "", "none", "null":
+			cfg.Agent.DefaultView = ""
+		default:
+			return configSetInvalid("agent.default_view", value)
+		}
+	case "agent.week_days":
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 {
+			return configSetInvalid("agent.week_days", value)
+		}
+		cfg.Agent.WeekDays = n
+	case "agent.open_only":
+		v, ok := parseBool(value)
+		if !ok {
+			return configSetInvalid("agent.open_only", value)
+		}
+		cfg.Agent.OpenOnly = v
+	case "agent.summary_group":
+		switch strings.ToLower(value) {
+		case "project", "column":
+			cfg.Agent.SummaryGroup = strings.ToLower(value)
+		case "", "none", "null":
+			cfg.Agent.SummaryGroup = ""
+		default:
+			return configSetInvalid("agent.summary_group", value)
+		}
+	case "agent.summary_totals":
+		v, ok := parseBool(value)
+		if !ok {
+			return configSetInvalid("agent.summary_totals", value)
+		}
+		cfg.Agent.SummaryTotals = v
+	default:
+		fmt.Fprintln(os.Stderr, "Unknown config key:", key)
+		fmt.Fprintln(os.Stderr, "Allowed keys: agent.require_explicit, agent.default_project, agent.default_view, agent.week_days, agent.open_only, agent.summary_group, agent.summary_totals")
+		return ExitUsage
+	}
+
+	if err := ws.SaveConfig(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "config set:", err)
+		return ExitInternal
+	}
+	if !gf.Quiet {
+		fmt.Printf("Updated %s\n", key)
+	}
+	return ExitOK
+}
+
+func parseBool(s string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "y", "on":
+		return true, true
+	case "0", "false", "no", "n", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func configSetInvalid(key, value string) int {
+	fmt.Fprintf(os.Stderr, "Invalid value for %s: %q\n", key, value)
+	return ExitUsage
 }
 
 func cmdInit(ws *store.Workspace, gf GlobalFlags, args []string) int {
@@ -531,13 +632,15 @@ func cmdProject(ws *store.Workspace, gf GlobalFlags, args []string) int {
 
 func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	args = reorderFlags(args, map[string]bool{
-		"--project":  true,
-		"--column":   true,
-		"--due":      true,
-		"--priority": true,
-		"--tag":      true,
-		"--desc":     true,
-		"--today":    false,
+		"--project":   true,
+		"--column":    true,
+		"--due":       true,
+		"--priority":  true,
+		"--tag":       true,
+		"--desc":      true,
+		"--today":     false,
+		"--tomorrow":  false,
+		"--next-week": false,
 	})
 	fs := flag.NewFlagSet("add", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -545,6 +648,8 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	column := fs.String("column", "inbox", "Column id (inbox|todo|doing|blocked|done|archive)")
 	due := fs.String("due", "", "Due date (YYYY-MM-DD) or RFC3339")
 	dueToday := fs.Bool("today", false, "Shortcut: due today")
+	dueTomorrow := fs.Bool("tomorrow", false, "Shortcut: due tomorrow")
+	dueNextWeek := fs.Bool("next-week", false, "Shortcut: due in 7 days")
 	priority := fs.String("priority", "normal", "Priority (low|normal|high|urgent)")
 	searchTag := multiFlag{}
 	fs.Var(&searchTag, "tag", "Tag (repeatable)")
@@ -557,12 +662,27 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: tasker add \"<title>\" --project <name> [--column todo] ...")
 		return ExitUsage
 	}
-	if *dueToday && strings.TrimSpace(*due) != "" {
-		fmt.Fprintln(os.Stderr, "Usage: --today cannot be combined with --due")
+	if strings.TrimSpace(*due) != "" && (*dueToday || *dueTomorrow || *dueNextWeek) {
+		fmt.Fprintln(os.Stderr, "Usage: --due cannot be combined with --today/--tomorrow/--next-week")
 		return ExitUsage
 	}
+	if *dueToday && (*dueTomorrow || *dueNextWeek) {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	if *dueTomorrow && *dueNextWeek {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	now := time.Now().UTC()
 	if *dueToday {
-		*due = time.Now().UTC().Format("2006-01-02")
+		*due = now.Format("2006-01-02")
+	}
+	if *dueTomorrow {
+		*due = now.AddDate(0, 0, 1).Format("2006-01-02")
+	}
+	if *dueNextWeek {
+		*due = now.AddDate(0, 0, 7).Format("2006-01-02")
 	}
 	title := strings.Join(rest, " ")
 	input := store.AddTaskInput{

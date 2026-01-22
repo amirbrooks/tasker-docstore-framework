@@ -23,7 +23,7 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
 - “what’s our week looking like”, “upcoming tasks”, “agenda”
   - Run: `./tasker week [--project <name>] [--days N] [--group <project|column>] [--totals]`
 - “add task …”
-  - Run: `./tasker add "<title>" --project <name> [--column <col>] [--due <YYYY-MM-DD> | --today] [--priority <p>] [--tag <t>]`
+  - Run: `./tasker add "<title>" --project <name> [--column <col>] [--due <YYYY-MM-DD> | --today | --tomorrow | --next-week] [--priority <p>] [--tag <t>]`
 - “mark done”, “complete task <id>”
   - Run: `./tasker done <id-or-prefix>`
 - “move task <id> to <column>”
@@ -38,6 +38,10 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
   - Run: `./tasker onboarding`
 - “show config”, “what are my settings?”
   - Run: `./tasker config show`
+- “set default project to Work”
+  - Run: `./tasker config set agent.default_project "Work"`
+- “default view should be week”
+  - Run: `./tasker config set agent.default_view week`
 
 ## Output rules (Codex interface)
 - Prefer human output only. Do not print raw JSON to the Codex interface.

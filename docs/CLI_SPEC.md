@@ -27,13 +27,25 @@ Print quickstart instructions and common commands.
 ### `tasker config show`
 Print current config (defaults shown if config file is missing). Supports `--plain` and `--json` export.
 
+### `tasker config set <key> <value>`
+Update config keys (agent defaults).
+
+Allowed keys:
+- `agent.require_explicit` (true/false)
+- `agent.default_project` (string, or `none`)
+- `agent.default_view` (`today`|`week`|`none`)
+- `agent.week_days` (integer)
+- `agent.open_only` (true/false)
+- `agent.summary_group` (`project`|`column`|`none`)
+- `agent.summary_totals` (true/false)
+
 ### `tasker project add "<name>"`
 Create a project (slugified).
 
 ### `tasker project ls`
 List projects.
 
-### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--today] [--priority <p>] [--tag <t>...]`
+### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--today|--tomorrow|--next-week] [--priority <p>] [--tag <t>...]`
 Create a task.
 
 Columns: `inbox|todo|doing|blocked|done|archive`

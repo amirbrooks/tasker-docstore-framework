@@ -29,6 +29,11 @@ Install (Go, from GitHub):
 go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
 ```
 
+Install (npm wrapper):
+```bash
+npm install -g @amirbrooks/tasker-docstore
+```
+
 2) Initialize store (defaults to `~/.tasker`):
 ```bash
 ./tasker init --project "Work"
@@ -44,6 +49,13 @@ View config (human summary):
 ./tasker config show
 ```
 
+Update config (agent defaults):
+```bash
+./tasker config set agent.default_project Work
+./tasker config set agent.default_view week
+./tasker config set agent.open_only true
+```
+
 3) Create a project:
 ```bash
 ./tasker project add "Work"
@@ -52,6 +64,8 @@ View config (human summary):
 4) Add tasks:
 ```bash
 ./tasker add "Draft proposal" --project Work --column todo --today --priority high --tag client
+./tasker add "Send recap" --project Work --tomorrow
+./tasker add "Plan next sprint" --project Work --next-week
 ./tasker add "Fix auth bug" --project Work --column doing
 ```
 
