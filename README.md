@@ -11,87 +11,85 @@ It is designed to integrate with **Clawdbot** via:
 
 ## Install
 
-Go (build from source):
+Pick one:
+
+**npm (recommended for non‑Go users)**  
+Downloads the prebuilt binary from GitHub releases.
 ```bash
-go build -o tasker ./cmd/tasker
+npm install -g @amirbrooks/tasker-docstore
 ```
 
-Go (install to local user bin):
-```bash
-./scripts/install.sh
-```
-
-Go (install from checkout):
-```bash
-go install ./cmd/tasker
-```
-
-Go (install from GitHub):
+**Go (recommended for Go users)**
 ```bash
 go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
 ```
 
-npm (wrapper downloads GitHub release binaries):
+**Build from source**
 ```bash
-npm install -g @amirbrooks/tasker-docstore
+go build -o tasker ./cmd/tasker
+```
+
+**Local install script**
+```bash
+./scripts/install.sh
 ```
 
 ## Quickstart
 
 1) Initialize store (defaults to `~/.tasker`):
 ```bash
-./tasker init --project "Work"
+tasker init --project "Work"
 ```
 
 Optional onboarding:
 ```bash
-./tasker onboarding
+tasker onboarding
 ```
 
 View config (human summary):
 ```bash
-./tasker config show
+tasker config show
 ```
 
 Update config (agent defaults):
 ```bash
-./tasker config set agent.default_project Work
-./tasker config set agent.default_view week
-./tasker config set agent.open_only true
+tasker config set agent.default_project Work
+tasker config set agent.default_view week
+tasker config set agent.open_only true
 ```
 
 2) Create another project (optional):
 ```bash
-./tasker project add "Side"
+tasker project add "Side"
 ```
 
 3) Add tasks:
 ```bash
-./tasker add "Draft proposal" --project Work --column todo --today --priority high --tag client
-./tasker add "Send recap" --project Work --tomorrow
-./tasker add "Plan next sprint" --project Work --next-week
-./tasker add "Fix auth bug" --project Work --column doing
+tasker add "Draft proposal" --project Work --column todo --today --priority high --tag client
+tasker add "Send recap" --project Work --tomorrow
+tasker add "Plan next sprint" --project Work --next-week
+tasker add "Fix auth bug" --project Work --column doing
 ```
 
 4) List tasks:
 ```bash
-./tasker ls --project Work
-./tasker ls --project Work --json   # writes JSON to <root>/exports
+tasker ls --project Work
+tasker ls --project Work --json   # writes JSON to <root>/exports
 ```
 
 5) Due today + overdue:
 ```bash
-./tasker tasks --project Work
+tasker tasks --project Work
 ```
 
 6) Board view:
 ```bash
-./tasker board --project Work --ascii
+tasker board --project Work --ascii
 ```
 
 7) Week view:
 ```bash
-./tasker week --project Work --days 7
+tasker week --project Work --days 7
 ```
 
 Optional agent defaults (`<root>/config.json`):
