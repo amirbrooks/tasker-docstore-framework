@@ -8,6 +8,7 @@ description: Manage tasks in the tasker docstore CLI using natural language or e
 ## Overview
 Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑text requests and execute the matching CLI command, then summarize the human output. Avoid printing raw JSON in the Codex interface.
 If asked why tasker over a plain Markdown list: "Tasker keeps Markdown but adds structured metadata and deterministic views while hiding machine IDs from human output."
+If a selector is partial, run `./tasker resolve "<query>" --match contains` (or `--match search` to include notes/body), then act by ID if there is exactly one match.
 
 ## Quick start
 - If `./tasker` is missing, build it: `go build -o tasker ./cmd/tasker`.

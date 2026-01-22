@@ -70,10 +70,10 @@ Columns: `inbox|todo|doing|blocked|done|archive`
 List tasks (defaults to non-archived).
 
 ### `tasker show <selector>`
-Show a task file (frontmatter + notes). Selector can be an ID/prefix or an exact title. Title matching ignores archived tasks. Use `--project/--column/--status` to scope matches.
+Show a task file (frontmatter + notes). Selector can be an ID/prefix or an exact title. Title matching ignores archived tasks. Use `--project/--column/--status` to scope matches, and `--match` for partial queries.
 
 ### `tasker resolve <selector>`
-Return JSON to stdout with all matching tasks (IDs included for agents). Supports `--project/--column/--status` and `--all` to include archived.
+Return JSON to stdout with all matching tasks (IDs included for agents). Supports `--project/--column/--status`, `--all` to include archived, and `--match` for partial queries (search includes notes/body).
 
 ### `tasker mv <selector> <column>`
 Move task to another column (atomic rename).
@@ -90,6 +90,7 @@ Selector flags (show/mv/done/note/resolve):
 - `--column <col>` to scope matching by column
 - `--status <s>` to scope matching by status
 - `--all` to include archived
+- `--match exact|prefix|contains|search` (`search` matches title + notes/body)
 
 ### `tasker board --project <name> [--open|--all]`
 Print project kanban board. `--open` hides done/archived; `--all` includes them. With `--format telegram`, done/archived are omitted unless `--all` is set.
