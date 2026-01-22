@@ -16,11 +16,14 @@ Examples:
 - `/task init`
 - `/task project add "Work"`
 - `/task add "Draft proposal" --project Work --column todo --due 2026-01-23 --priority high --tag client --details "Send a revised scope summary."`
+- `/task add --text "Draft proposal | outline scope | due 2026-01-23" --project Work`
+- `/task capture "Quick note | due 2026-01-23"`
 - `/task ls --project Work`
 - `/task board --project Work --format telegram`
 - `/task tasks --project Work --format telegram`   # due today + overdue
 - `/task week --project Work --days 7 --format telegram`
 - `/task done "Draft proposal"`
+- `/task resolve "Draft proposal"`
 
 Output modes:
 - `--json`, `--ndjson`, `--plain`, `--ascii`, `--format telegram`

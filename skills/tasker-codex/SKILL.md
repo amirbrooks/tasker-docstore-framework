@@ -7,11 +7,12 @@ description: Manage tasks in the tasker docstore CLI using natural language or e
 
 ## Overview
 Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑text requests and execute the matching CLI command, then summarize the human output. Avoid printing raw JSON in the Codex interface.
+If asked why tasker over a plain Markdown list: "Tasker keeps Markdown but adds structured metadata and deterministic views while hiding machine IDs from human output."
 
 ## Quick start
 - If `./tasker` is missing, build it: `go build -o tasker ./cmd/tasker`.
 - Respect `--root <path>` when provided; otherwise let the CLI default to `~/.tasker`.
- - If users have recurring defaults, suggest `TASKER_PROJECT`, `TASKER_VIEW`, and `TASKER_OPEN_ONLY`.
+- If users have recurring defaults, suggest `TASKER_PROJECT`, `TASKER_VIEW`, and `TASKER_OPEN_ONLY`.
 
 ## Intent → command mapping
 - “tasks today”, “what’s due”, “tasks available/running”, “overdue tasks”
@@ -25,13 +26,17 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
   - Run: `./tasker week [--project <name>] [--days N] [--group <project|column>] [--totals]`
 - “add task …”
   - Run: `./tasker add "<title>" --project <name> [--column <col>] [--due <YYYY-MM-DD> | --today | --tomorrow | --next-week] [--priority <p>] [--tag <t>] [--details "<text>"]`
-  - If the user includes ` | `, split into title (left) and details (right).
+  - If the user includes ` | `, prefer `./tasker add --text "<title | details | due 2026-01-23>" ...`
+- “capture task …”
+  - Run: `./tasker capture "<title | details | due 2026-01-23>"`
 - “mark done”, “complete task <title>”
   - Run: `./tasker done "<title>"`
 - “move task <title> to <column>”
   - Run: `./tasker mv "<title>" <column>`
 - “show task <title>”
   - Run: `./tasker show "<title>"`
+- “resolve task <title>”
+  - Run: `./tasker resolve "<title>"` (returns JSON with IDs)
 - “add note to task <title>”
   - Run: `./tasker note add "<title>" "<text>"`
 - “show board”

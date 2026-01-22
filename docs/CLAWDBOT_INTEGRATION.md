@@ -94,15 +94,19 @@ Install only one profile at a time. If you switch, remove the other and restart 
 
 ## Usage
 Natural language (preferred):
-- "tasks today for Work" -> `tasker_cmd` with `tasks --project Work --open`
-- "what's our week looking like?" -> `week --days 7`
-- "add Draft proposal today" -> `add "Draft proposal" --today`
+- "tasks today for Work" -> `tasker_cmd` with `tasks --project Work --open --format telegram`
+- "what's our week looking like?" -> `week --days 7 --format telegram`
+- "add Draft proposal today" -> `add "Draft proposal" --today --format telegram`
+- "add Draft proposal | outline scope | due 2026-01-23" -> `add --text "Draft proposal | outline scope | due 2026-01-23" --format telegram`
+- "capture Draft proposal | due 2026-01-23" -> `capture "Draft proposal | due 2026-01-23" --format telegram`
 
 Slash command (explicit):
 - `/task ls --project Work`
 - `/task add "Draft proposal" --project Work --column todo`
+- `/task add --text "Draft proposal | due 2026-01-23" --project Work`
 - `/task done "Draft proposal"`
 - `/task tasks --project Work` (due today + overdue)
 - `/task week --project Work --days 7` (upcoming + overdue)
 - `/task tasks today --open --group project --totals`
 - `/task config show`
+- `/task resolve "Draft proposal"`

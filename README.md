@@ -90,6 +90,8 @@ tasker add "Draft proposal" --project Work --column todo --today --priority high
 tasker add "Send recap" --project Work --tomorrow
 tasker add "Plan next sprint" --project Work --next-week
 tasker add "Fix auth bug" --project Work --column doing
+tasker add --text "Draft proposal | outline scope | due 2026-01-23" --project Work
+tasker capture "Quick note | due 2026-01-23"
 ```
 
 4) List tasks:
@@ -140,11 +142,22 @@ Output options:
 - Human‑readable summaries by default
 - `--plain` for stable tab‑separated output
 - `--json` / `--ndjson` write to `<root>/exports` (stdout JSON disabled by default)
+- `--ascii` for board rendering
+- `--format telegram` for lean chat output (plain text)
+
+Agent helpers:
+- `tasker resolve "<selector>"` returns JSON to stdout with matching IDs
+
+## FAQ
+
+**Why use tasker instead of a plain Markdown list?**  
+Tasker keeps tasks as Markdown but adds structured metadata (due/status/tags), deterministic views (today/week/board), and agent‑safe IDs without cluttering human output.
 
 ## Codex / agent usage
 
 - Natural language: “tasks today for Work” → `tasker tasks --project Work`
 - Natural language: “what’s our week looking like?” → `tasker week --project Work`
+- Natural language: “capture Draft proposal | due 2026-01-23” → `tasker capture "Draft proposal | due 2026-01-23"`
 - Onboarding: `tasker onboarding`
 
 JSON/NDJSON exports write to `<root>/exports` and are not printed to stdout unless `--stdout-json` or `--stdout-ndjson` is used.

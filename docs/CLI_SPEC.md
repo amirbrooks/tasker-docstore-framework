@@ -55,8 +55,14 @@ Create a project (slugified).
 List projects.
 
 ### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--today|--tomorrow|--next-week] [--priority <p>] [--tag <t>...] [--desc <text>|--details <text>]`
-Create a task.
+Create a task. If `--project` is omitted, it uses `TASKER_PROJECT` / `agent.default_project` when set (otherwise `Personal`).
 `--details` is an alias for `--desc`. When `--format telegram` is set, `add` prints a lean confirmation line suitable for chat.
+
+### `tasker add --text "<title | details | due 2026-01-23 | #tag>" --project <name> [--column <col>] [--priority <p>] [--tag <t>...]`
+Create a task from a single text string. Split parts with ` | ` (space‑pipe‑space). Explicit flags override parsed parts.
+
+### `tasker capture "<title | details | due 2026-01-23 | #tag>" [--project <name>] [--column <col>] [--priority <p>] [--tag <t>...]`
+Quick add using the same `--text` parsing. Defaults to inbox and your default project.
 
 Columns: `inbox|todo|doing|blocked|done|archive`
 
@@ -64,7 +70,10 @@ Columns: `inbox|todo|doing|blocked|done|archive`
 List tasks (defaults to non-archived).
 
 ### `tasker show <selector>`
-Show a task file (frontmatter + notes). Selector can be an ID/prefix or an exact title. Title matching ignores archived tasks.
+Show a task file (frontmatter + notes). Selector can be an ID/prefix or an exact title. Title matching ignores archived tasks. Use `--project/--column/--status` to scope matches.
+
+### `tasker resolve <selector>`
+Return JSON to stdout with all matching tasks (IDs included for agents). Supports `--project/--column/--status` and `--all` to include archived.
 
 ### `tasker mv <selector> <column>`
 Move task to another column (atomic rename).
@@ -75,6 +84,12 @@ Shortcut for `mv <selector> done`.
 ### `tasker note add <selector> "<text>"`
 Append a note entry.
 If multiple tasks share a title, the CLI returns a conflict and lists matching tasks (by project/column) so you can refine the title or set a default project.
+
+Selector flags (show/mv/done/note/resolve):
+- `--project <name>` to scope matching (use `none`/`all` to disable the default project)
+- `--column <col>` to scope matching by column
+- `--status <s>` to scope matching by status
+- `--all` to include archived
 
 ### `tasker board --project <name> [--open|--all]`
 Print project kanban board. `--open` hides done/archived; `--all` includes them. With `--format telegram`, done/archived are omitted unless `--all` is set.
