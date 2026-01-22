@@ -51,6 +51,13 @@ type Workspace struct {
 	cfg  Config
 }
 
+type SelectorFilter struct {
+	Project         string
+	Column          string
+	Status          string
+	IncludeArchived bool
+}
+
 type Config struct {
 	Schema  int          `json:"schema"`
 	Columns []ColumnDef  `json:"columns"`
@@ -372,39 +379,89 @@ func (w *Workspace) GetTaskByPrefix(prefix string) (*Task, error) {
 }
 
 func (w *Workspace) GetTaskBySelector(selector string, project string) (*Task, error) {
+	return w.GetTaskBySelectorFiltered(selector, SelectorFilter{Project: project})
+}
+
+func (w *Workspace) GetTaskBySelectorFiltered(selector string, filter SelectorFilter) (*Task, error) {
 	selector = strings.TrimSpace(selector)
 	if selector == "" {
 		return nil, ErrInvalid
 	}
-	if isLikelyIDSelector(selector) {
-		task, err := w.GetTaskByPrefix(selector)
-		if err == nil {
-			return task, nil
-		}
-		if errors.Is(err, ErrConflict) {
-			return nil, err
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return nil, err
-		}
-		return w.getTaskByTitle(selector, project)
-	}
-	task, err := w.getTaskByTitle(selector, project)
-	if err == nil {
-		return task, nil
-	}
-	if errors.Is(err, ErrConflict) {
+	matches, err := w.resolveSelectorCandidates(selector, filter)
+	if err != nil {
 		return nil, err
 	}
-	if !errors.Is(err, ErrNotFound) {
-		return nil, err
+	if len(matches) == 0 {
+		return nil, ErrNotFound
 	}
-	return w.GetTaskByPrefix(selector)
+	if len(matches) == 1 {
+		match := matches[0]
+		return &match, nil
+	}
+	return nil, &MatchConflictError{Reason: "selector", Matches: matches}
 }
 
-func (w *Workspace) getTaskByTitle(selector string, project string) (*Task, error) {
-	filter := ListFilter{Project: project, All: false}
-	tasks, err := w.ListTasks(filter)
+func (w *Workspace) ResolveTasks(selector string, filter SelectorFilter) ([]Task, error) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return nil, ErrInvalid
+	}
+	matches, err := w.resolveSelectorCandidates(selector, filter)
+	if err != nil {
+		return nil, err
+	}
+	return matches, nil
+}
+
+func (w *Workspace) resolveSelectorCandidates(selector string, filter SelectorFilter) ([]Task, error) {
+	filter = normalizeSelectorFilter(filter)
+	if isLikelyIDSelector(selector) {
+		matches, err := w.findTasksByPrefixFiltered(selector, filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) > 0 {
+			return matches, nil
+		}
+		return w.findTasksByTitleFiltered(selector, filter)
+	}
+	matches, err := w.findTasksByTitleFiltered(selector, filter)
+	if err != nil {
+		return nil, err
+	}
+	if len(matches) > 0 {
+		return matches, nil
+	}
+	return w.findTasksByPrefixFiltered(selector, filter)
+}
+
+func normalizeSelectorFilter(filter SelectorFilter) SelectorFilter {
+	project := strings.TrimSpace(filter.Project)
+	if project != "" {
+		project = slugifyOrDefault(project, project)
+	}
+	column := strings.TrimSpace(strings.ToLower(filter.Column))
+	status := strings.TrimSpace(strings.ToLower(filter.Status))
+	includeArchived := filter.IncludeArchived
+	if status == "archived" || column == "archive" {
+		includeArchived = true
+	}
+	return SelectorFilter{
+		Project:         project,
+		Column:          column,
+		Status:          status,
+		IncludeArchived: includeArchived,
+	}
+}
+
+func (w *Workspace) findTasksByTitleFiltered(selector string, filter SelectorFilter) ([]Task, error) {
+	listFilter := ListFilter{
+		Project: filter.Project,
+		Column:  filter.Column,
+		Status:  filter.Status,
+		All:     filter.IncludeArchived,
+	}
+	tasks, err := w.ListTasks(listFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -421,13 +478,49 @@ func (w *Workspace) getTaskByTitle(selector string, project string) (*Task, erro
 			matches = append(matches, t)
 		}
 	}
-	if len(matches) == 0 {
-		return nil, ErrNotFound
+	return sortSelectorMatches(matches), nil
+}
+
+func (w *Workspace) findTasksByPrefixFiltered(prefix string, filter SelectorFilter) ([]Task, error) {
+	paths, err := w.findTasksByPrefix(prefix)
+	if err != nil {
+		return nil, err
 	}
-	if len(matches) == 1 {
-		match := matches[0]
-		return &match, nil
+	if len(paths) == 0 {
+		return nil, nil
 	}
+	var matches []Task
+	for _, path := range paths {
+		t, err := readTaskFile(path)
+		if err != nil {
+			continue
+		}
+		w.reconcileTaskFromPath(t)
+		if !matchesSelectorFilter(*t, filter) {
+			continue
+		}
+		matches = append(matches, *t)
+	}
+	return sortSelectorMatches(matches), nil
+}
+
+func matchesSelectorFilter(t Task, filter SelectorFilter) bool {
+	if filter.Project != "" && t.Project != filter.Project {
+		return false
+	}
+	if filter.Column != "" && t.Column != filter.Column {
+		return false
+	}
+	if filter.Status != "" && t.Status != filter.Status {
+		return false
+	}
+	if !filter.IncludeArchived && t.Status == "archived" {
+		return false
+	}
+	return true
+}
+
+func sortSelectorMatches(matches []Task) []Task {
 	sort.Slice(matches, func(i, j int) bool {
 		if matches[i].Project != matches[j].Project {
 			return matches[i].Project < matches[j].Project
@@ -437,7 +530,7 @@ func (w *Workspace) getTaskByTitle(selector string, project string) (*Task, erro
 		}
 		return strings.ToLower(matches[i].Title) < strings.ToLower(matches[j].Title)
 	})
-	return nil, &MatchConflictError{Reason: "title", Matches: matches}
+	return matches
 }
 
 func (w *Workspace) tasksFromPaths(paths []string) []Task {
