@@ -36,6 +36,7 @@ type GlobalFlags struct {
 	StdoutNDJSON  bool
 	ExportDir     string
 	ExportBaseTag string
+	Format        string
 }
 
 func reorderFlags(args []string, takesValue map[string]bool) []string {
@@ -167,6 +168,39 @@ func resolveShowTotals(ws *store.Workspace, totalsFlag bool) bool {
 	}
 	return false
 }
+
+func selectorProject(ws *store.Workspace) string {
+	return resolveProject(ws, "")
+}
+
+func handleMatchConflict(cmd string, err error) bool {
+	var mc *store.MatchConflictError
+	if !errors.As(err, &mc) {
+		return false
+	}
+	if len(mc.Matches) == 0 {
+		fmt.Fprintf(os.Stderr, "%s: ambiguous selector\n", cmd)
+		return true
+	}
+	fmt.Fprintf(os.Stderr, "%s: multiple tasks match\n", cmd)
+	for _, t := range mc.Matches {
+		title := strings.TrimSpace(t.Title)
+		if title == "" {
+			title = "(untitled)"
+		}
+		due := ""
+		if strings.TrimSpace(t.Due) != "" {
+			due = fmt.Sprintf(" (due %s)", strings.TrimSpace(t.Due))
+		}
+		loc := t.Project
+		if t.Column != "" {
+			loc = loc + "/" + t.Column
+		}
+		fmt.Fprintf(os.Stderr, "  - %s: %s%s\n", loc, title, due)
+	}
+	fmt.Fprintln(os.Stderr, "Tip: use a more specific title or set TASKER_PROJECT/agent.default_project.")
+	return true
+}
 func Run(args []string) int {
 	gf, rest, err := extractGlobalFlags(args)
 	if err != nil {
@@ -235,6 +269,7 @@ Usage:
 
 Global flags:
   --root <path>    Store root (default: ~/.tasker or TASKER_ROOT)
+  --format <f>     Output format: human|telegram (default: human)
   --json           Write JSON output to <root>/exports (no stdout JSON)
   --ndjson         Write NDJSON output to <root>/exports (no stdout NDJSON)
   --stdout-json    Allow JSON to stdout (debug only)
@@ -254,11 +289,11 @@ Commands:
   project ls
   add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...]
   ls [--project <name>] [--column <col>] [--status <s>] [--tag <t>] [--search <q>] [--all]
-  show <id-or-prefix>
-  mv <id-or-prefix> <column>
-  done <id-or-prefix>
-  note add <id-or-prefix> "<text>"
-  board --project <name>
+  show <selector>
+  mv <selector> <column>
+  done <selector>
+  note add <selector> "<text>"
+  board --project <name> [--open|--all]
   today [--project <name>] [--open|--all] [--group project|column|none] [--totals]
   tasks [today|week] [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
   summary [today|week] [--project <name>] [--days N] [--open|--all] [--group project|column|none] [--totals]
@@ -274,6 +309,7 @@ Columns:
 func extractGlobalFlags(args []string) (GlobalFlags, []string, error) {
 	// Allow flags anywhere by scanning and stripping known globals.
 	gf := GlobalFlags{}
+	gf.Format = "human"
 
 	// Default root from env or home.
 	if env := os.Getenv("TASKER_ROOT"); env != "" {
@@ -302,6 +338,12 @@ func extractGlobalFlags(args []string) (GlobalFlags, []string, error) {
 				return gf, nil, errors.New("--root requires a value")
 			}
 			gf.Root = args[i+1]
+			skip = 1
+		case "--format":
+			if i+1 >= len(args) {
+				return gf, nil, errors.New("--format requires a value")
+			}
+			gf.Format = args[i+1]
 			skip = 1
 		case "--json":
 			gf.JSON = true
@@ -339,10 +381,27 @@ func extractGlobalFlags(args []string) (GlobalFlags, []string, error) {
 	if gf.StdoutNDJSON && !gf.NDJSON {
 		return gf, nil, errors.New("--stdout-ndjson requires --ndjson")
 	}
+	format, err := normalizeFormat(gf.Format)
+	if err != nil {
+		return gf, nil, err
+	}
+	gf.Format = format
 	if gf.ExportDir == "" {
 		gf.ExportDir = filepath.Join(gf.Root, "exports")
 	}
 	return gf, out, nil
+}
+
+func normalizeFormat(format string) (string, error) {
+	format = strings.ToLower(strings.TrimSpace(format))
+	switch format {
+	case "", "human":
+		return "human", nil
+	case "telegram", "tg":
+		return "telegram", nil
+	default:
+		return "", fmt.Errorf("unknown --format %q (use human or telegram)", format)
+	}
 }
 
 func cmdOnboarding(ws *store.Workspace, gf GlobalFlags, args []string) int {
@@ -771,7 +830,11 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		}
 		return ExitOK
 	}
-	fmt.Printf("%s [%s/%s] %s\n", task.ID, task.Project, task.Column, task.Title)
+	titleText := strings.TrimSpace(task.Title)
+	if titleText == "" {
+		titleText = "(untitled)"
+	}
+	fmt.Printf("Added %s (%s/%s)\n", titleText, task.Project, task.Column)
 	return ExitOK
 }
 
@@ -865,34 +928,57 @@ func cmdList(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		return ExitOK
 	}
 
-	// Table output
-	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID	ST	PRI	DUE	PROJECT/COL	TITLE")
 	for _, t := range tasks {
-		dueStr := "-"
-		if t.Due != "" {
-			dueStr = t.Due
-		}
-		fmt.Fprintf(w, "%s	%s	%s	%s	%s/%s	%s\n",
-			t.ID, t.StatusAbbrev(), t.PriorityAbbrev(), dueStr, t.Project, t.Column, t.Title)
+		fmt.Fprintln(os.Stdout, formatListBullet(t))
 	}
-	_ = w.Flush()
 	return ExitOK
+}
+
+func formatListBullet(t store.Task) string {
+	title := strings.TrimSpace(t.Title)
+	if title == "" {
+		title = "(untitled)"
+	}
+	loc := t.Project
+	if t.Column != "" {
+		loc = loc + "/" + t.Column
+	}
+	due := ""
+	if strings.TrimSpace(t.Due) != "" {
+		due = fmt.Sprintf(" (due %s)", strings.TrimSpace(t.Due))
+	}
+	status := strings.TrimSpace(t.StatusAbbrev())
+	label := status
+	pri := strings.TrimSpace(t.PriorityAbbrev())
+	if pri != "" && pri != "N" {
+		if label != "" {
+			label = label + " " + pri
+		} else {
+			label = pri
+		}
+	}
+	if label != "" {
+		label = "[" + label + "] "
+	}
+	return fmt.Sprintf("- %s%s: %s%s", label, loc, title, due)
 }
 
 func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker show <id-or-prefix>")
+		fmt.Fprintln(os.Stderr, "Usage: tasker show <selector>")
 		return ExitUsage
 	}
-	task, err := ws.GetTaskByPrefix(args[0])
+	task, err := ws.GetTaskBySelector(args[0], selectorProject(ws))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "show: not found")
 			return ExitNotFound
 		}
 		if errors.Is(err, store.ErrConflict) {
-			fmt.Fprintln(os.Stderr, "show: ambiguous id prefix")
+			if handleMatchConflict("show", err) {
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, "show: ambiguous selector")
 			return ExitConflict
 		}
 		fmt.Fprintln(os.Stderr, "show:", err)
@@ -921,10 +1007,26 @@ func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
 
 func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker mv <id-or-prefix> <column>")
+		fmt.Fprintln(os.Stderr, "Usage: tasker mv <selector> <column>")
 		return ExitUsage
 	}
-	task, err := ws.MoveTask(args[0], args[1])
+	taskRef, err := ws.GetTaskBySelector(args[0], selectorProject(ws))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr, "mv: not found")
+			return ExitNotFound
+		}
+		if errors.Is(err, store.ErrConflict) {
+			if handleMatchConflict("mv", err) {
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, "mv: ambiguous selector")
+			return ExitConflict
+		}
+		fmt.Fprintln(os.Stderr, "mv:", err)
+		return ExitInternal
+	}
+	task, err := ws.MoveTask(taskRef.ID, args[1])
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "mv: not found")
@@ -954,16 +1056,36 @@ func cmdMove(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		}
 		return ExitOK
 	}
-	fmt.Printf("Moved %s -> %s\n", task.ID, task.Column)
+	title := strings.TrimSpace(task.Title)
+	if title == "" {
+		title = "(untitled)"
+	}
+	fmt.Printf("Moved %s -> %s\n", title, task.Column)
 	return ExitOK
 }
 
 func cmdDone(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker done <id-or-prefix>")
+		fmt.Fprintln(os.Stderr, "Usage: tasker done <selector>")
 		return ExitUsage
 	}
-	task, err := ws.MoveTask(args[0], "done")
+	taskRef, err := ws.GetTaskBySelector(args[0], selectorProject(ws))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr, "done: not found")
+			return ExitNotFound
+		}
+		if errors.Is(err, store.ErrConflict) {
+			if handleMatchConflict("done", err) {
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, "done: ambiguous selector")
+			return ExitConflict
+		}
+		fmt.Fprintln(os.Stderr, "done:", err)
+		return ExitInternal
+	}
+	task, err := ws.MoveTask(taskRef.ID, "done")
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "done: not found")
@@ -993,27 +1115,47 @@ func cmdDone(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		}
 		return ExitOK
 	}
-	fmt.Printf("Done %s\n", task.ID)
+	title := strings.TrimSpace(task.Title)
+	if title == "" {
+		title = "(untitled)"
+	}
+	fmt.Printf("Done %s\n", title)
 	return ExitOK
 }
 
 func cmdNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker note add <id> \"<text>\"")
+		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector> \"<text>\"")
 		return ExitUsage
 	}
 	sub := args[0]
 	if sub != "add" {
-		fmt.Fprintln(os.Stderr, "Usage: tasker note add <id> \"<text>\"")
+		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector> \"<text>\"")
 		return ExitUsage
 	}
 	if len(args) < 3 {
-		fmt.Fprintln(os.Stderr, "Usage: tasker note add <id> \"<text>\"")
+		fmt.Fprintln(os.Stderr, "Usage: tasker note add <selector> \"<text>\"")
 		return ExitUsage
 	}
 	id := args[1]
 	text := strings.Join(args[2:], " ")
-	task, err := ws.AddNote(id, strings.TrimSpace(text))
+	taskRef, err := ws.GetTaskBySelector(id, selectorProject(ws))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr, "note: not found")
+			return ExitNotFound
+		}
+		if errors.Is(err, store.ErrConflict) {
+			if handleMatchConflict("note", err) {
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, "note: ambiguous selector")
+			return ExitConflict
+		}
+		fmt.Fprintln(os.Stderr, "note:", err)
+		return ExitInternal
+	}
+	task, err := ws.AddNote(taskRef.ID, strings.TrimSpace(text))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "note: not found")
@@ -1043,25 +1185,40 @@ func cmdNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		}
 		return ExitOK
 	}
-	fmt.Printf("Noted %s\n", task.ID)
+	title := strings.TrimSpace(task.Title)
+	if title == "" {
+		title = "(untitled)"
+	}
+	fmt.Printf("Noted %s\n", title)
 	return ExitOK
 }
 
 func cmdBoard(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	args = reorderFlags(args, map[string]bool{
 		"--project": true,
+		"--open":    false,
+		"--all":     false,
 	})
 	fs := flag.NewFlagSet("board", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	project := fs.String("project", "", "Project name/slug")
+	openOnly := fs.Bool("open", false, "Only open/doing/blocked")
+	all := fs.Bool("all", false, "Include done/archived")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
 	if strings.TrimSpace(*project) == "" {
-		fmt.Fprintln(os.Stderr, "Usage: tasker board --project <name>")
+		fmt.Fprintln(os.Stderr, "Usage: tasker board --project <name> [--open|--all]")
 		return ExitUsage
 	}
-	out, err := ws.RenderBoard(strings.TrimSpace(*project), gf.ASCII)
+	open := *openOnly
+	if *all {
+		open = false
+	}
+	if gf.Format == "telegram" && !*all && !*openOnly {
+		open = true
+	}
+	out, err := ws.RenderBoard(strings.TrimSpace(*project), gf.ASCII, gf.Format, open)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "board:", err)
 		return ExitInternal
@@ -1099,6 +1256,9 @@ func cmdToday(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	}
 	projectName := resolveProject(ws, *project)
 	open := resolveOpenOnly(ws, *openOnly, *all)
+	if gf.Format == "telegram" && !*all {
+		open = true
+	}
 	groupBy := resolveGroupBy(ws, *group)
 	if groupBy == "none" {
 		groupBy = ""
@@ -1108,7 +1268,7 @@ func cmdToday(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		return ExitUsage
 	}
 	showTotals := resolveShowTotals(ws, *totals)
-	out, err := ws.RenderToday(projectName, open, groupBy, showTotals)
+	out, err := ws.RenderToday(projectName, open, groupBy, showTotals, gf.Format)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "today:", err)
 		return ExitInternal
@@ -1148,6 +1308,9 @@ func cmdAgenda(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	}
 	projectName := resolveProject(ws, *project)
 	open := resolveOpenOnly(ws, *openOnly, *all)
+	if gf.Format == "telegram" && !*all {
+		open = true
+	}
 	window := resolveWeekDays(ws, *days)
 	groupBy := resolveGroupBy(ws, *group)
 	if groupBy == "none" {
@@ -1158,7 +1321,7 @@ func cmdAgenda(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		return ExitUsage
 	}
 	showTotals := resolveShowTotals(ws, *totals)
-	out, err := ws.RenderAgenda(projectName, window, open, groupBy, showTotals)
+	out, err := ws.RenderAgenda(projectName, window, open, groupBy, showTotals, gf.Format)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "week:", err)
 		return ExitInternal
@@ -1212,6 +1375,9 @@ func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	}
 	projectName := resolveProject(ws, *project)
 	open := resolveOpenOnly(ws, *openOnly, *all)
+	if gf.Format == "telegram" && !*all {
+		open = true
+	}
 	groupBy := resolveGroupBy(ws, *group)
 	if groupBy == "none" {
 		groupBy = ""
@@ -1223,7 +1389,7 @@ func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	showTotals := resolveShowTotals(ws, *totals)
 	if mode == "week" {
 		window := resolveWeekDays(ws, *days)
-		out, err := ws.RenderAgenda(projectName, window, open, groupBy, showTotals)
+		out, err := ws.RenderAgenda(projectName, window, open, groupBy, showTotals, gf.Format)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "tasks:", err)
 			return ExitInternal
@@ -1231,7 +1397,7 @@ func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Println(out)
 		return ExitOK
 	}
-	out, err := ws.RenderToday(projectName, open, groupBy, showTotals)
+	out, err := ws.RenderToday(projectName, open, groupBy, showTotals, gf.Format)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tasks:", err)
 		return ExitInternal

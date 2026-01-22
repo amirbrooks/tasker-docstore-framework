@@ -28,6 +28,24 @@ var (
 	timeNow     = func() time.Time { return time.Now().UTC() }
 )
 
+// MatchConflictError provides details when a selector matches multiple tasks.
+// It still satisfies errors.Is(err, ErrConflict).
+type MatchConflictError struct {
+	Reason  string
+	Matches []Task
+}
+
+func (e *MatchConflictError) Error() string {
+	if e == nil || strings.TrimSpace(e.Reason) == "" {
+		return "conflict"
+	}
+	return "conflict: " + e.Reason
+}
+
+func (e *MatchConflictError) Is(target error) bool {
+	return target == ErrConflict
+}
+
 type Workspace struct {
 	Root string
 	cfg  Config
@@ -342,7 +360,8 @@ func (w *Workspace) GetTaskByPrefix(prefix string) (*Task, error) {
 		return nil, ErrNotFound
 	}
 	if len(candidates) > 1 {
-		return nil, ErrConflict
+		matches := w.tasksFromPaths(candidates)
+		return nil, &MatchConflictError{Reason: "prefix", Matches: matches}
 	}
 	t, err := readTaskFile(candidates[0])
 	if err != nil {
@@ -350,6 +369,122 @@ func (w *Workspace) GetTaskByPrefix(prefix string) (*Task, error) {
 	}
 	w.reconcileTaskFromPath(t)
 	return t, nil
+}
+
+func (w *Workspace) GetTaskBySelector(selector string, project string) (*Task, error) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return nil, ErrInvalid
+	}
+	if isLikelyIDSelector(selector) {
+		task, err := w.GetTaskByPrefix(selector)
+		if err == nil {
+			return task, nil
+		}
+		if errors.Is(err, ErrConflict) {
+			return nil, err
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		return w.getTaskByTitle(selector, project)
+	}
+	task, err := w.getTaskByTitle(selector, project)
+	if err == nil {
+		return task, nil
+	}
+	if errors.Is(err, ErrConflict) {
+		return nil, err
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	return w.GetTaskByPrefix(selector)
+}
+
+func (w *Workspace) getTaskByTitle(selector string, project string) (*Task, error) {
+	filter := ListFilter{Project: project, All: false}
+	tasks, err := w.ListTasks(filter)
+	if err != nil {
+		return nil, err
+	}
+	sel := strings.TrimSpace(selector)
+	selLower := strings.ToLower(sel)
+	selSlug := slugify(sel)
+	var matches []Task
+	for _, t := range tasks {
+		title := strings.TrimSpace(t.Title)
+		if title == "" {
+			continue
+		}
+		if strings.ToLower(title) == selLower || slugify(title) == selSlug {
+			matches = append(matches, t)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, ErrNotFound
+	}
+	if len(matches) == 1 {
+		match := matches[0]
+		return &match, nil
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].Project != matches[j].Project {
+			return matches[i].Project < matches[j].Project
+		}
+		if matches[i].Column != matches[j].Column {
+			return matches[i].Column < matches[j].Column
+		}
+		return strings.ToLower(matches[i].Title) < strings.ToLower(matches[j].Title)
+	})
+	return nil, &MatchConflictError{Reason: "title", Matches: matches}
+}
+
+func (w *Workspace) tasksFromPaths(paths []string) []Task {
+	out := make([]Task, 0, len(paths))
+	for _, path := range paths {
+		t, err := readTaskFile(path)
+		if err != nil {
+			continue
+		}
+		w.reconcileTaskFromPath(t)
+		out = append(out, *t)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Project != out[j].Project {
+			return out[i].Project < out[j].Project
+		}
+		if out[i].Column != out[j].Column {
+			return out[i].Column < out[j].Column
+		}
+		return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
+	})
+	return out
+}
+
+func isLikelyIDSelector(selector string) bool {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return false
+	}
+	lower := strings.ToLower(selector)
+	if strings.HasPrefix(lower, "tsk_") {
+		return true
+	}
+	if len(selector) < 8 {
+		return false
+	}
+	allowed := "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+	hasDigit := false
+	for _, r := range strings.ToUpper(selector) {
+		if r >= '0' && r <= '9' {
+			hasDigit = true
+		}
+		if !strings.ContainsRune(allowed, r) {
+			return false
+		}
+	}
+	return hasDigit
 }
 
 func (w *Workspace) MoveTask(prefix string, toColumnID string) (*Task, error) {
@@ -493,12 +628,18 @@ func (w *Workspace) ListTasks(f ListFilter) ([]Task, error) {
 	return out, nil
 }
 
-func (w *Workspace) RenderBoard(project string, ascii bool) (string, error) {
+func (w *Workspace) RenderBoard(project string, ascii bool, format string, openOnly bool) (string, error) {
+	if isTelegramFormat(format) {
+		return w.renderTelegramBoard(project, openOnly)
+	}
 	projectSlug := slugifyOrDefault(project, project)
 	// Collect tasks per column.
-	type card struct{ ID, Title, Pri string }
+	type card struct{ Title, Pri string }
 	colCards := map[string][]card{}
 	for _, c := range w.cfg.Columns {
+		if openOnly && !isOpenStatus(c.Status) {
+			continue
+		}
 		dir := filepath.Join(w.projectColumnsDir(projectSlug), c.Dir)
 		entries, _ := os.ReadDir(dir)
 		for _, e := range entries {
@@ -509,29 +650,41 @@ func (w *Workspace) RenderBoard(project string, ascii bool) (string, error) {
 			if err != nil {
 				continue
 			}
-			colCards[c.ID] = append(colCards[c.ID], card{ID: t.IDShort(8), Title: truncate(t.Title, 18, ascii), Pri: t.PriorityAbbrev()})
+			title := taskTitle(t.Title)
+			title = truncate(title, 80, ascii)
+			colCards[c.ID] = append(colCards[c.ID], card{Title: title, Pri: t.PriorityAbbrev()})
 		}
 	}
 
 	// Simple board rendering (no box drawing; keep it lean).
 	var b strings.Builder
 	b.WriteString(projectSlug + "\n\n")
+	wroteAny := false
 	for _, c := range w.cfg.Columns {
-		b.WriteString("## " + c.Name + "\n")
-		cards := colCards[c.ID]
-		if len(cards) == 0 {
-			b.WriteString("  (empty)\n\n")
+		if openOnly && !isOpenStatus(c.Status) {
 			continue
 		}
-		for _, cd := range cards {
-			b.WriteString(fmt.Sprintf("  %s %s %s\n", cd.ID, cd.Pri, cd.Title))
+		cards := colCards[c.ID]
+		if len(cards) == 0 {
+			continue
 		}
-		b.WriteString("\n")
+		if wroteAny {
+			b.WriteString("\n")
+		}
+		b.WriteString(c.Name + "\n")
+		for _, cd := range cards {
+			pri := priorityLabel(cd.Pri)
+			b.WriteString(fmt.Sprintf("  - %s%s\n", pri, cd.Title))
+		}
+		wroteAny = true
+	}
+	if !wroteAny {
+		b.WriteString("(no tasks)\n")
 	}
 	return b.String(), nil
 }
 
-func (w *Workspace) RenderToday(project string, openOnly bool, groupBy string, showTotals bool) (string, error) {
+func (w *Workspace) RenderToday(project string, openOnly bool, groupBy string, showTotals bool, format string) (string, error) {
 	filter := ListFilter{Project: project, All: false}
 	tasks, err := w.ListTasks(filter)
 	if err != nil {
@@ -555,14 +708,20 @@ func (w *Workspace) RenderToday(project string, openOnly bool, groupBy string, s
 			overdue = append(overdue, t)
 		}
 	}
+	if isTelegramFormat(format) {
+		return w.renderTelegramToday(project, today, dueToday, overdue, groupBy, showTotals), nil
+	}
+	if len(dueToday) == 0 && len(overdue) == 0 {
+		return fmt.Sprintf("Today (%s) - nothing due, nothing overdue", today), nil
+	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Today (%s) — due %d, overdue %d\n\n", today, len(dueToday), len(overdue)))
+	b.WriteString(fmt.Sprintf("Today (%s) - due %d, overdue %d\n\n", today, len(dueToday), len(overdue)))
 	writeTaskSection(&b, "Due today", dueToday, groupBy, showTotals, false)
 	writeTaskSection(&b, "Overdue", overdue, groupBy, showTotals, true)
 	return b.String(), nil
 }
 
-func (w *Workspace) RenderAgenda(project string, days int, openOnly bool, groupBy string, showTotals bool) (string, error) {
+func (w *Workspace) RenderAgenda(project string, days int, openOnly bool, groupBy string, showTotals bool, format string) (string, error) {
 	filter := ListFilter{Project: project, All: false}
 	tasks, err := w.ListTasks(filter)
 	if err != nil {
@@ -596,10 +755,16 @@ func (w *Workspace) RenderAgenda(project string, days int, openOnly bool, groupB
 		key := d.Format("2006-01-02")
 		byDate[key] = append(byDate[key], t)
 	}
+	if isTelegramFormat(format) {
+		return w.renderTelegramAgenda(days, start, end, overdue, byDate, groupBy, showTotals), nil
+	}
 
 	var b strings.Builder
-	rangeLabel := fmt.Sprintf("%s → %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
-	b.WriteString(fmt.Sprintf("Week (%d days) — %s — due %d, overdue %d\n\n", days, rangeLabel, lenByDate(byDate), len(overdue)))
+	rangeLabel := fmt.Sprintf("%s -> %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
+	if lenByDate(byDate) == 0 && len(overdue) == 0 {
+		return fmt.Sprintf("Week (%d days) - %s - nothing due, nothing overdue", days, rangeLabel), nil
+	}
+	b.WriteString(fmt.Sprintf("Week (%d days) - %s - due %d, overdue %d\n\n", days, rangeLabel, lenByDate(byDate), len(overdue)))
 
 	writeTaskSection(&b, "Overdue", overdue, groupBy, showTotals, true)
 
@@ -631,11 +796,10 @@ func isOpenStatus(status string) bool {
 }
 
 func writeTaskSection(b *strings.Builder, title string, tasks []Task, groupBy string, showTotals bool, includeDue bool) {
-	b.WriteString(title + ":\n")
 	if len(tasks) == 0 {
-		b.WriteString("  (none)\n\n")
 		return
 	}
+	b.WriteString(title + "\n")
 	groupBy = normalizeGroupBy(groupBy)
 	if groupBy == "" {
 		for _, t := range tasks {
@@ -691,18 +855,48 @@ func groupTasks(tasks []Task, groupBy string) ([]string, map[string][]Task) {
 }
 
 func formatTaskLine(t Task, groupBy string, includeDue bool) string {
-	due := ""
-	if includeDue && t.Due != "" {
-		due = fmt.Sprintf(" (%s)", t.Due)
+	due := formatDueSuffix(t.Due, includeDue)
+	title := taskTitle(t.Title)
+	pri := priorityLabel(t.PriorityAbbrev())
+	indent := "  "
+	if groupBy != "" {
+		indent = "    "
 	}
 	switch groupBy {
 	case "project":
-		return fmt.Sprintf("    %s %s%s %s %s\n", t.ID, t.PriorityAbbrev(), due, t.Column, t.Title)
+		return fmt.Sprintf("%s- %s%s: %s%s\n", indent, pri, t.Column, title, due)
 	case "column":
-		return fmt.Sprintf("    %s %s%s %s %s\n", t.ID, t.PriorityAbbrev(), due, t.Project, t.Title)
+		return fmt.Sprintf("%s- %s%s: %s%s\n", indent, pri, t.Project, title, due)
 	default:
-		return fmt.Sprintf("  %s %s%s %s/%s %s\n", t.ID, t.PriorityAbbrev(), due, t.Project, t.Column, t.Title)
+		return fmt.Sprintf("%s- %s%s/%s: %s%s\n", indent, pri, t.Project, t.Column, title, due)
 	}
+}
+
+func taskTitle(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "(untitled)"
+	}
+	return title
+}
+
+func formatDueSuffix(due string, includeDue bool) string {
+	if !includeDue {
+		return ""
+	}
+	due = strings.TrimSpace(due)
+	if due == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (due %s)", due)
+}
+
+func priorityLabel(abbrev string) string {
+	abbrev = strings.TrimSpace(abbrev)
+	if abbrev == "" || abbrev == "N" {
+		return ""
+	}
+	return "[" + abbrev + "] "
 }
 
 func parseDueDate(due string) (time.Time, bool) {
@@ -770,7 +964,6 @@ func (t *Task) PriorityAbbrev() string {
 func (t *Task) RenderHuman() string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s\n", t.Title))
-	b.WriteString(fmt.Sprintf("ID: %s\n", t.ID))
 	b.WriteString(fmt.Sprintf("Project: %s\n", t.Project))
 	b.WriteString(fmt.Sprintf("Column: %s\n", t.Column))
 	b.WriteString(fmt.Sprintf("Status: %s\n", t.Status))
