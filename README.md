@@ -139,6 +139,23 @@ See `SECURITY.md` and `docs/SECURITY.md`.
 
 See `SUPPORT.md`.
 
+## Release (maintainers)
+
+1) Tag a release (triggers GoReleaser):
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+2) Publish npm wrapper (requires 2FA-enabled npm token):
+```bash
+cd npm
+npm publish --access public
+```
+
+Notes:
+- The npm wrapper downloads binaries from GitHub Releases, so the tag must exist before `npm publish`.
+
 ## License
 
 MIT (see `LICENSE`).
