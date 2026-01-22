@@ -19,7 +19,8 @@ Route task-related requests to `tasker_cmd` (raw args only, no leading `tasker`)
 - If the user includes ` | ` (space-pipe-space), prefer `--text "<title | details | due 2026-01-23>"` so the CLI can parse details/due/tags. Only split on explicit ` | ` to avoid corrupting titles.
 - Do not guess separators like "but" or "—"; only split on explicit ` | `.
 - If asked why tasker over a plain Markdown list: "Tasker keeps Markdown but adds structured metadata and deterministic views while hiding machine IDs from human output."
-- If a selector looks partial, run `resolve "<query>" --match contains` (or `--match search` to include notes/body), then act by ID if there is exactly one match. Never show IDs in human output.
+- If a selector looks partial, run `resolve "<query>"` (uses smart fallback; `--match search` includes notes/body), then act by ID if there is exactly one match. Never show IDs in human output.
+- For notes, prefer `note add <selector...> -- <text...>` to avoid ambiguity; without `--`, tasker will attempt to infer the split.
 
 Common mappings:
 - "tasks today" / "overdue" -> `tasks --open --format telegram` (today + overdue)

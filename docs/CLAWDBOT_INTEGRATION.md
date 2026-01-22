@@ -99,7 +99,7 @@ Natural language (preferred):
 - "add Draft proposal today" -> `add "Draft proposal" --today --format telegram`
 - "add Draft proposal | outline scope | due 2026-01-23" -> `add --text "Draft proposal | outline scope | due 2026-01-23" --format telegram`
 - "capture Draft proposal | due 2026-01-23" -> `capture "Draft proposal | due 2026-01-23" --format telegram`
-- "mark done follow up" -> `resolve "follow up" --match contains` then `done "<id>"` (IDs stay internal)
+- "mark done follow up" -> `resolve "follow up"` then `done "<id>"` if exactly one match (IDs stay internal)
 
 Slash command (explicit):
 - `/task ls --project Work`

@@ -70,10 +70,10 @@ Columns: `inbox|todo|doing|blocked|done|archive`
 List tasks (defaults to non-archived).
 
 ### `tasker show <selector>`
-Show a task file (frontmatter + notes). Selector can be an ID/prefix or an exact title. Title matching ignores archived tasks. Use `--project/--column/--status` to scope matches, and `--match` for partial queries.
+Show a task file (frontmatter + notes). Selector can be an ID/prefix or an exact title. Title matching ignores archived tasks. Use `--project/--column/--status` to scope matches, and `--match` for partial queries (default is smart fallback).
 
 ### `tasker resolve <selector>`
-Return JSON to stdout with all matching tasks (IDs included for agents). Supports `--project/--column/--status`, `--all` to include archived, and `--match` for partial queries (search includes notes/body).
+Return JSON to stdout with all matching tasks (IDs included for agents). Supports `--project/--column/--status`, `--all` to include archived, and `--match` for partial queries (search includes notes/body; default is smart fallback).
 
 ### `tasker mv <selector> <column>`
 Move task to another column (atomic rename).
@@ -81,16 +81,17 @@ Move task to another column (atomic rename).
 ### `tasker done <selector>`
 Shortcut for `mv <selector> done`.
 
-### `tasker note add <selector> "<text>"`
+### `tasker note add <selector...> -- <text...>`
 Append a note entry.
 If multiple tasks share a title, the CLI returns a conflict and lists matching tasks (by project/column) so you can refine the title or set a default project.
+Tip: use `--` to separate selector text from the note; without it, tasker will try to infer the split.
 
 Selector flags (show/mv/done/note/resolve):
 - `--project <name>` to scope matching (use `none`/`all` to disable the default project)
 - `--column <col>` to scope matching by column
 - `--status <s>` to scope matching by status
 - `--all` to include archived
-- `--match exact|prefix|contains|search` (`search` matches title + notes/body)
+- `--match auto|exact|prefix|contains|search` (`auto` tries exact → prefix → contains → search; `search` matches title + notes/body)
 
 ### `tasker board --project <name> [--open|--all]`
 Print project kanban board. `--open` hides done/archived; `--all` includes them. With `--format telegram`, done/archived are omitted unless `--all` is set.
