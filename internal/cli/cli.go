@@ -736,6 +736,7 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		"--priority":  true,
 		"--tag":       true,
 		"--desc":      true,
+		"--details":   true,
 		"--today":     false,
 		"--tomorrow":  false,
 		"--next-week": false,
@@ -752,6 +753,7 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	searchTag := multiFlag{}
 	fs.Var(&searchTag, "tag", "Tag (repeatable)")
 	desc := fs.String("desc", "", "Description (short)")
+	details := fs.String("details", "", "Details (alias for --desc)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -772,6 +774,15 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
 		return ExitUsage
 	}
+	descText := strings.TrimSpace(*desc)
+	detailsText := strings.TrimSpace(*details)
+	if descText != "" && detailsText != "" && descText != detailsText {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --desc or --details")
+		return ExitUsage
+	}
+	if detailsText != "" {
+		descText = detailsText
+	}
 	now := time.Now().UTC()
 	if *dueToday {
 		*due = now.Format("2006-01-02")
@@ -790,7 +801,7 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		Due:         strings.TrimSpace(*due),
 		Priority:    strings.TrimSpace(*priority),
 		Tags:        searchTag.Values,
-		Description: strings.TrimSpace(*desc),
+		Description: descText,
 	}
 	task, err := ws.AddTask(input)
 	if err != nil {
@@ -833,6 +844,12 @@ func cmdAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	titleText := strings.TrimSpace(task.Title)
 	if titleText == "" {
 		titleText = "(untitled)"
+	}
+	if gf.Format == "telegram" {
+		colLabel := columnLabel(ws, task.Column)
+		line := formatChatAddLine(titleText, descText, task.Due)
+		fmt.Printf("Added to %s:\n%s\n", colLabel, line)
+		return ExitOK
 	}
 	fmt.Printf("Added %s (%s/%s)\n", titleText, task.Project, task.Column)
 	return ExitOK
@@ -961,6 +978,84 @@ func formatListBullet(t store.Task) string {
 		label = "[" + label + "] "
 	}
 	return fmt.Sprintf("- %s%s: %s%s", label, loc, title, due)
+}
+
+func columnLabel(ws *store.Workspace, colID string) string {
+	colID = strings.TrimSpace(colID)
+	if colID == "" {
+		return "inbox"
+	}
+	cfg := ws.Config()
+	for _, col := range cfg.Columns {
+		if col.ID == colID {
+			name := strings.TrimSpace(col.Name)
+			if name != "" {
+				return name
+			}
+		}
+	}
+	return colID
+}
+
+func formatChatAddLine(title string, details string, due string) string {
+	line := title
+	detailText := cleanSummary(details, 160)
+	if detailText != "" {
+		line = line + " — " + detailText
+	}
+	if strings.TrimSpace(due) != "" {
+		if dueShort := formatDueShort(due); dueShort != "" {
+			line = line + " (due " + dueShort + ")"
+		}
+	}
+	return line
+}
+
+func cleanSummary(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	parts := strings.Fields(s)
+	s = strings.Join(parts, " ")
+	if max <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max <= 3 {
+		return string(r[:max])
+	}
+	return string(r[:max-3]) + "..."
+}
+
+func formatDueShort(due string) string {
+	due = strings.TrimSpace(due)
+	if due == "" {
+		return ""
+	}
+	if len(due) >= 10 {
+		datePart := due[:10]
+		if t, err := time.Parse("2006-01-02", datePart); err == nil {
+			now := time.Now().UTC()
+			if t.Year() == now.Year() {
+				return t.Format("Jan 02")
+			}
+			return t.Format("Jan 02 2006")
+		}
+	}
+	if t, err := time.Parse(time.RFC3339, due); err == nil {
+		now := time.Now().UTC()
+		if t.Year() == now.Year() {
+			return t.Format("Jan 02")
+		}
+		return t.Format("Jan 02 2006")
+	}
+	return due
 }
 
 func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {

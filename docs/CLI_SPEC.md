@@ -54,8 +54,9 @@ Create a project (slugified).
 ### `tasker project ls`
 List projects.
 
-### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--today|--tomorrow|--next-week] [--priority <p>] [--tag <t>...]`
+### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--today|--tomorrow|--next-week] [--priority <p>] [--tag <t>...] [--desc <text>|--details <text>]`
 Create a task.
+`--details` is an alias for `--desc`.
 
 Columns: `inbox|todo|doing|blocked|done|archive`
 
