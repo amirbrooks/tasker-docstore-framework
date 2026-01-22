@@ -86,3 +86,15 @@ See `docs/STORAGE_SPEC.md`.
 ## Clawdbot integration
 
 See `docs/CLAWDBOT_INTEGRATION.md`.
+
+## Contributing
+
+See `CONTRIBUTING.md`.
+
+## Security
+
+See `SECURITY.md` and `docs/SECURITY.md`.
+
+## License
+
+MIT (see `LICENSE`).
