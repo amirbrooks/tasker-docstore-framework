@@ -1,4 +1,3 @@
-import { Type } from "@sinclair/typebox";
 import { spawn } from "node:child_process";
 import os from "node:os";
 
@@ -14,11 +13,16 @@ import os from "node:os";
 
 type PluginApi = any;
 
-const ToolParams = Type.Object({
-  command: Type.String({ description: "Raw args after /task" }),
-  commandName: Type.Optional(Type.String()),
-  skillName: Type.Optional(Type.String()),
-});
+const ToolParams = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    command: { type: "string", description: "Raw args after /task" },
+    commandName: { type: "string" },
+    skillName: { type: "string" },
+  },
+  required: ["command"],
+} as const;
 
 function splitArgs(input: string): string[] {
   const out: string[] = [];
@@ -141,7 +145,12 @@ export default function (api: PluginApi) {
       description: "Run tasker CLI subcommands safely (no shell). Used by /task skill tool-dispatch.",
       parameters: ToolParams,
       async execute(_id: string, params: any) {
-        const cfg = api.config?.() ?? {};
+        const cfg = (api.pluginConfig ?? {}) as {
+          binary?: string;
+          rootPath?: string;
+          timeoutMs?: number;
+          allowWrite?: boolean;
+        };
         const envBinary = process.env.TASKER_BIN ? String(process.env.TASKER_BIN).trim() : "";
         const binary = (cfg.binary && String(cfg.binary)) || envBinary || "tasker";
         const rootPath = (cfg.rootPath && String(cfg.rootPath)) || defaultRoot();
