@@ -14,6 +14,14 @@ Binary: `tasker`
 - `--ascii`: ASCII rendering for board output
 - `--quiet`, `--verbose`
 
+### Environment defaults (optional)
+- `TASKER_PROJECT`: default project if `--project` is omitted
+- `TASKER_VIEW`: `today` or `week` (default view for `tasker tasks`)
+- `TASKER_WEEK_DAYS`: integer days for week view
+- `TASKER_OPEN_ONLY`: `true`/`false` (open‑only by default)
+- `TASKER_GROUP`: `project` or `column`
+- `TASKER_TOTALS`: `true`/`false` for per‑group counts
+
 Flags may appear **before or after** the subcommand in v0.1.
 
 ## Commands (v0.1)

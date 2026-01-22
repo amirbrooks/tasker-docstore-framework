@@ -11,6 +11,7 @@ Use the `tasker` CLI in this repo to manage docstore tasks. Interpret plain‑te
 ## Quick start
 - If `./tasker` is missing, build it: `go build -o tasker ./cmd/tasker`.
 - Respect `--root <path>` when provided; otherwise let the CLI default to `~/.tasker`.
+ - If users have recurring defaults, suggest `TASKER_PROJECT`, `TASKER_VIEW`, and `TASKER_OPEN_ONLY`.
 
 ## Intent → command mapping
 - “tasks today”, “what’s due”, “tasks available/running”, “overdue tasks”

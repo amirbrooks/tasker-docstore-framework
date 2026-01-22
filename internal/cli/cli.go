@@ -75,9 +75,36 @@ func agentConfig(ws *store.Workspace) *store.AgentConfig {
 	return cfg.Agent
 }
 
+func envString(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
+}
+
+func envBool(key string) (bool, bool) {
+	s := envString(key)
+	if s == "" {
+		return false, false
+	}
+	return parseBool(s)
+}
+
+func envInt(key string) (int, bool) {
+	s := envString(key)
+	if s == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n, true
+}
+
 func resolveProject(ws *store.Workspace, project string) string {
 	if strings.TrimSpace(project) != "" {
 		return strings.TrimSpace(project)
+	}
+	if v := envString("TASKER_PROJECT"); v != "" {
+		return v
 	}
 	if ac := agentConfig(ws); ac != nil && strings.TrimSpace(ac.DefaultProject) != "" {
 		return strings.TrimSpace(ac.DefaultProject)
@@ -92,6 +119,9 @@ func resolveOpenOnly(ws *store.Workspace, openFlag bool, allFlag bool) bool {
 	if openFlag {
 		return true
 	}
+	if v, ok := envBool("TASKER_OPEN_ONLY"); ok {
+		return v
+	}
 	if ac := agentConfig(ws); ac != nil && ac.OpenOnly {
 		return true
 	}
@@ -101,6 +131,9 @@ func resolveOpenOnly(ws *store.Workspace, openFlag bool, allFlag bool) bool {
 func resolveWeekDays(ws *store.Workspace, daysFlag int) int {
 	if daysFlag > 0 {
 		return daysFlag
+	}
+	if v, ok := envInt("TASKER_WEEK_DAYS"); ok {
+		return v
 	}
 	if ac := agentConfig(ws); ac != nil && ac.WeekDays > 0 {
 		return ac.WeekDays
@@ -113,6 +146,9 @@ func resolveGroupBy(ws *store.Workspace, groupFlag string) string {
 	if group != "" {
 		return group
 	}
+	if v := envString("TASKER_GROUP"); v != "" {
+		return strings.ToLower(v)
+	}
 	if ac := agentConfig(ws); ac != nil && strings.TrimSpace(ac.SummaryGroup) != "" {
 		return strings.ToLower(strings.TrimSpace(ac.SummaryGroup))
 	}
@@ -122,6 +158,9 @@ func resolveGroupBy(ws *store.Workspace, groupFlag string) string {
 func resolveShowTotals(ws *store.Workspace, totalsFlag bool) bool {
 	if totalsFlag {
 		return true
+	}
+	if v, ok := envBool("TASKER_TOTALS"); ok {
+		return v
 	}
 	if ac := agentConfig(ws); ac != nil && ac.SummaryTotals {
 		return true
@@ -1163,7 +1202,9 @@ func cmdTasks(ws *store.Workspace, gf GlobalFlags, args []string) int {
 		}
 	}
 	if mode == "" {
-		if ac := agentConfig(ws); ac != nil && strings.ToLower(ac.DefaultView) == "week" {
+		if v := strings.ToLower(envString("TASKER_VIEW")); v == "week" || v == "today" {
+			mode = v
+		} else if ac := agentConfig(ws); ac != nil && strings.ToLower(ac.DefaultView) == "week" {
 			mode = "week"
 		} else {
 			mode = "today"

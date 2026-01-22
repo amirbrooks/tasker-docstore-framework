@@ -1,5 +1,7 @@
 # tasker (Docstore) — lightweight task manager (no DB)
 
+One binary. Local‑first tasks in Markdown. Works great with agents.
+
 This is a **framework + scaffolding** for a local-first task manager that stores tasks as **Markdown files** with YAML frontmatter,
 organized in a **filesystem Kanban** layout (projects + columns).
 
@@ -7,34 +9,36 @@ It is designed to integrate with **Clawdbot** via:
 - a plugin tool (`tasker_cmd`) that safely spawns the `tasker` CLI with `shell:false`
 - a skill (`/task`) that uses `command-dispatch: tool` to bypass the model (low-bloat)
 
-## Quickstart (CLI)
+## Install
 
-1) Build (Go 1.22+):
+Go (build from source):
 ```bash
 go build -o tasker ./cmd/tasker
 ```
 
-Install (local user bin):
+Go (install to local user bin):
 ```bash
 ./scripts/install.sh
 ```
 
-Install (from source checkout, local):
+Go (install from checkout):
 ```bash
 go install ./cmd/tasker
 ```
 
-Install (Go, from GitHub):
+Go (install from GitHub):
 ```bash
 go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
 ```
 
-Install (npm wrapper):
+npm (wrapper downloads GitHub release binaries):
 ```bash
 npm install -g @amirbrooks/tasker-docstore
 ```
 
-2) Initialize store (defaults to `~/.tasker`):
+## Quickstart
+
+1) Initialize store (defaults to `~/.tasker`):
 ```bash
 ./tasker init --project "Work"
 ```
@@ -56,12 +60,12 @@ Update config (agent defaults):
 ./tasker config set agent.open_only true
 ```
 
-3) Create another project (optional):
+2) Create another project (optional):
 ```bash
 ./tasker project add "Side"
 ```
 
-4) Add tasks:
+3) Add tasks:
 ```bash
 ./tasker add "Draft proposal" --project Work --column todo --today --priority high --tag client
 ./tasker add "Send recap" --project Work --tomorrow
@@ -69,23 +73,23 @@ Update config (agent defaults):
 ./tasker add "Fix auth bug" --project Work --column doing
 ```
 
-5) List tasks:
+4) List tasks:
 ```bash
 ./tasker ls --project Work
 ./tasker ls --project Work --json   # writes JSON to <root>/exports
 ```
 
-6) Due today + overdue:
+5) Due today + overdue:
 ```bash
 ./tasker tasks --project Work
 ```
 
-7) Board view:
+6) Board view:
 ```bash
 ./tasker board --project Work --ascii
 ```
 
-8) Week view:
+7) Week view:
 ```bash
 ./tasker week --project Work --days 7
 ```
@@ -104,6 +108,19 @@ Optional agent defaults (`<root>/config.json`):
   }
 }
 ```
+
+### Defaults & UX
+
+Set defaults to reduce flags:
+- `TASKER_PROJECT=work` (env) or `agent.default_project` (config)
+- `TASKER_VIEW=week` (env) or `agent.default_view=week` (config)
+- `TASKER_OPEN_ONLY=true` (env) or `agent.open_only=true` (config)
+- `TASKER_GROUP=project` + `TASKER_TOTALS=true` (env) for grouped summaries
+
+Output options:
+- Human‑readable summaries by default
+- `--plain` for stable tab‑separated output
+- `--json` / `--ndjson` write to `<root>/exports` (stdout JSON disabled by default)
 
 ## Codex / agent usage
 
