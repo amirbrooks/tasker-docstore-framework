@@ -20,6 +20,76 @@ tasker add "First task" --project Work --today
 tasker tasks --project Work
 ```
 
+## Setup (CLI + Clawdbot)
+
+1) Install the CLI (pick one):
+
+**npm (recommended for non‑Go users)**  
+```bash
+npm install -g @amirbrooks/tasker-docstore
+```
+
+**Go (recommended for Go users)**  
+```bash
+go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
+```
+
+2) Install the Clawdbot plugin (registers `tasker_cmd`):
+
+Copy `extensions/tasker/` to one of:
+- `<workspace>/.clawdbot/extensions/tasker/`
+- `~/.clawdbot/extensions/tasker/`
+
+3) Configure the Clawdbot plugin:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "tasker": {
+        "enabled": true,
+        "config": {
+          "binary": "tasker",
+          "rootPath": "~/.tasker",
+          "timeoutMs": 15000,
+          "allowWrite": true
+        }
+      }
+    }
+  }
+}
+```
+
+4) Allowlist the tool (required):
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "tools": { "allow": ["tasker_cmd"] }
+      }
+    ]
+  }
+}
+```
+
+5) Install a skill profile (pick one) to:
+- `<workspace>/skills/task/` (preferred)
+- `~/.clawdbot/skills/task/`
+
+Profiles:
+- Natural language: `skills/task/`
+- Slash-only (low-bloat): copy `skills/task-slash/` into your skills folder as `task/`
+- Optional helper: `./scripts/install-skill.sh --profile nl|slash`
+
+Full docs:
+- `docs/CLAWDBOT_INTEGRATION.md`
+- `docs/CLI_SPEC.md`
+- `docs/STORAGE_SPEC.md`
+- `docs/SECURITY.md`
+
 It is designed to integrate with **Clawdbot** via:
 - a plugin tool (`tasker_cmd`) that safely spawns the `tasker` CLI with `shell:false`
 - a skill profile that maps natural language or `/task` to `tasker_cmd`
@@ -32,18 +102,7 @@ Clawdbot helpers:
 
 ## Install
 
-Pick one:
-
-**npm (recommended for non‑Go users)**  
-Downloads the prebuilt binary from GitHub releases.
-```bash
-npm install -g @amirbrooks/tasker-docstore
-```
-
-**Go (recommended for Go users)**
-```bash
-go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
-```
+See Setup above for npm/Go install. Additional options:
 
 **Build from source**
 ```bash
@@ -133,8 +192,10 @@ Optional agent defaults (`<root>/config.json`):
 ### Defaults & UX
 
 Set defaults to reduce flags:
+- `TASKER_ROOT=/path/to/store` (env) or `--root <path>` (flag)
 - `TASKER_PROJECT=work` (env) or `agent.default_project` (config)
 - `TASKER_VIEW=week` (env) or `agent.default_view=week` (config)
+- `TASKER_WEEK_DAYS=7` (env) or `agent.week_days=7` (config)
 - `TASKER_OPEN_ONLY=true` (env) or `agent.open_only=true` (config)
 - `TASKER_GROUP=project` + `TASKER_TOTALS=true` (env) for grouped summaries
 

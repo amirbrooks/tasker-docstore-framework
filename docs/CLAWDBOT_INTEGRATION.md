@@ -3,12 +3,33 @@
 Goal: expose tasker via a plugin tool + skill that supports **natural language** and `/task ...` slash commands. For low-bloat slash-only mode, set `disable-model-invocation: true` in the skill.
 
 Approach:
-1) Install the plugin tool (`extensions/tasker`) — registers optional tool `tasker_cmd`
-2) Allowlist `tasker_cmd` for your agent (optional tools are opt-in)
-3) Install the skill (`skills/task`) — configures `/task` and NL routing to dispatch to `tasker_cmd`
+1) Install the tasker CLI (npm/go/build)
+2) Install the plugin tool (`extensions/tasker`) — registers optional tool `tasker_cmd`
+3) Allowlist `tasker_cmd` for your agent (optional tools are opt-in)
+4) Install the skill (`skills/task`) — configures `/task` and NL routing to dispatch to `tasker_cmd`
 
 ## Why plugin tool?
 Clawdbot `exec` runs shell commands. Forwarding user args into a shell is hard to secure. The plugin tool spawns `tasker` with `shell:false` and an argv array.
+
+## Install the tasker CLI
+
+Pick one:
+
+```bash
+npm install -g @amirbrooks/tasker-docstore
+```
+
+```bash
+go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
+```
+
+Or build locally:
+
+```bash
+go build -o tasker ./cmd/tasker
+```
+
+If the binary is not on PATH, set `TASKER_BIN` or configure `binary` in the plugin config below.
 
 ## Plugin install
 Copy `extensions/tasker/` to one of:
@@ -56,6 +77,8 @@ If `tasker` is not on PATH, set `binary` to an absolute path (or `tasker.exe` on
 ```
 
 You can also set `TASKER_BIN` as a fallback. The tool returns a clear error if the binary is missing.
+
+Note: `rootPath` maps to the CLI `--root` flag. The default store root is `~/.tasker`. See `docs/STORAGE_SPEC.md` for the directory layout.
 
 ## Tool allowlist
 Because `tasker_cmd` is optional, allowlist it:

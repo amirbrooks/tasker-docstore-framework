@@ -16,18 +16,25 @@ Route task-related requests to `tasker_cmd` (raw args only, no leading `tasker`)
 - Natural language → translate into CLI args
 - `/task ...` → pass args through unchanged
 
-2) Run and summarize
+2) Execute and summarize
 - Prefer human‑readable output
 - Avoid `--stdout-json`/`--stdout-ndjson` unless explicitly requested
+- If JSON is requested, use `--json` or `--ndjson` and report the export path
 
 3) Keep chat output lean
 - For Telegram/WhatsApp, add `--format telegram`
 - Use `--all` only when done/archived are explicitly requested
+- Prefer `--group project|column` and `--totals` when a grouped summary is requested
+
+## Formatting rules (chat output)
+- If the output is a flat task list, present a compact table with columns: `Priority | Project | Task` (add `Due` only when provided)
+- Keep section headers like “Due today” and “Overdue”; do not reorder tasks or invent data
+- Use a monospace code block for alignment; truncate long titles and note truncation if needed
+- Never show IDs in human output
 
 ## Selector rules (important)
 - Smart fallback is allowed; if partial, run `resolve "<query>"` (uses smart fallback; `--match search` includes notes/body)
 - Act by ID only when there is exactly one match
-- Never show IDs in human output
 
 ## Text splitting
 - If the user includes ` | ` (space‑pipe‑space), prefer `--text "<title | details | due 2026-01-23>"`

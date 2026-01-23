@@ -24,12 +24,17 @@ Prefer `note add <selector...> -- <text...>` to avoid ambiguity.
 - Supports chat‑friendly output with `--format telegram`
 
 ## Requirements
+- Clawdbot plugin installed (`extensions/tasker`) to provide `tasker_cmd`
 - `tasker_cmd` tool allowlisted
 - `tasker` CLI available via plugin `binary`, `TASKER_BIN`, or PATH
 
 ## Install
 - Natural language profile (recommended): use this folder as `task/`
 - Slash‑only profile: copy `skills/task-slash/` into your skills folder as `task/`
+- Install to one of:
+  - `<workspace>/skills/task/` (preferred)
+  - `~/.clawdbot/skills/task/`
+- Install only one profile at a time (remove the other if switching)
 
 Full setup: `docs/CLAWDBOT_INTEGRATION.md`
 
