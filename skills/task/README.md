@@ -1,8 +1,8 @@
-# Tasker Skill — Task CLI for Clawdbot
+# Tasker Skill — Task + Idea CLI for Clawdbot
 
 Trigger: `/task` (optional)
 
-Lean task management via the `tasker` CLI. Natural language maps to CLI args; `/task` passes through unchanged.
+Lean task + idea management via the `tasker` CLI. Natural language maps to CLI args; `/task` passes through unchanged.
 
 ## Flow
 1) Determine intent  
@@ -44,11 +44,17 @@ Natural language:
 - “what’s our week” → `week --days 7 --format telegram`
 - “add draft spec | due 2026-01-23” → `add --text "draft spec | due 2026-01-23" --format telegram`
 - “capture UI review | due 2026-01-23” → `capture "UI review | due 2026-01-23" --format telegram`
+- “capture idea pricing notes | #pricing” → `idea capture "pricing notes | #pricing" --format telegram`
+- “add idea note pricing notes | follow up” → `idea note add "pricing notes" -- "follow up"`
+- “promote idea pricing notes” → `idea promote "pricing notes" --format telegram`
 
 Slash commands:
 - `/task tasks --project Work --format telegram`
 - `/task add --text "Fix auth | due 2026-01-23" --project Work`
 - `/task resolve "auth" --match search`
+- `/task idea ls --scope all --format telegram`
+- `/task idea note add "pricing notes" -- "follow up"`
+- `/task idea promote "pricing notes" --project Work --column todo`
 
 ## Selector behavior (important)
 - Default `--match` is **auto**: exact → prefix → contains → search

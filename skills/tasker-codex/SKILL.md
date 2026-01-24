@@ -1,6 +1,6 @@
 ---
 name: tasker-codex
-description: Manage tasks in the tasker docstore CLI using natural language or explicit commands. Use when a user asks for “tasks today/overdue,” adding tasks, listing tasks, moving tasks between columns, marking done, viewing a board, or onboarding to tasker.
+description: Manage tasks and ideas in the tasker docstore CLI using natural language or explicit commands. Use for tasks today/overdue, idea capture/promotion, listing, moving, marking done, or onboarding to tasker.
 ---
 
 # Tasker Codex
@@ -15,6 +15,7 @@ For notes, prefer `./tasker note add <selector...> -- <text...>` to avoid ambigu
 - If `./tasker` is missing, build it: `go build -o tasker ./cmd/tasker`.
 - Respect `--root <path>` when provided; otherwise let the CLI default to `~/.tasker`.
 - If users have recurring defaults, suggest `TASKER_PROJECT`, `TASKER_VIEW`, and `TASKER_OPEN_ONLY`.
+- For long idea content, prefer `./tasker idea add --stdin` with piped input.
 
 ## Intent → command mapping
 - “tasks today”, “what’s due”, “tasks available/running”, “overdue tasks”
@@ -31,6 +32,18 @@ For notes, prefer `./tasker note add <selector...> -- <text...>` to avoid ambigu
   - If the user includes ` | `, prefer `./tasker add --text "<title | details | due 2026-01-23>" ...`
 - “capture task …”
   - Run: `./tasker capture "<title | details | due 2026-01-23>"`
+- “add idea …”
+  - Run: `./tasker idea add "<title>" [--project <name>] [--tag <t>...]`
+- “capture idea …”
+  - Run: `./tasker idea capture "<title | details | #tag>"`
+- “list ideas …”
+  - Run: `./tasker idea ls [--scope root|project|all] [--project <name>] [--tag <t>] [--search <q>]`
+- “show idea …”
+  - Run: `./tasker idea show "<title>"`
+- “add note to idea …”
+  - Run: `./tasker idea note add "<title>" -- "<text>"`
+- “promote idea …”
+  - Run: `./tasker idea promote "<title>" [--project <name>] [--column <col>] [--link] [--delete]`
 - “mark done”, “complete task <title>”
   - Run: `./tasker done "<title>"`
 - “move task <title> to <column>”

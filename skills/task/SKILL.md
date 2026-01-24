@@ -1,6 +1,6 @@
 ---
 name: task
-description: Tasker docstore task management via tool-dispatch. Use for task lists, due today/overdue, week planning, add/move/complete, or explicit /task commands.
+description: Tasker docstore task + idea management via tool-dispatch. Use for task lists, due today/overdue, week planning, idea capture, promotion, or explicit /task commands.
 user-invocable: true
 disable-model-invocation: false
 command-dispatch: tool
@@ -9,7 +9,7 @@ command-arg-mode: raw
 metadata: {"clawdbot":{"emoji":"🗂️"}}
 ---
 
-Route task-related requests to `tasker_cmd` (raw args only, no leading `tasker`).
+Route task and idea requests to `tasker_cmd` (raw args only, no leading `tasker`).
 
 ## Flow
 1) Detect intent
@@ -25,6 +25,7 @@ Route task-related requests to `tasker_cmd` (raw args only, no leading `tasker`)
 - For Telegram/WhatsApp, add `--format telegram`
 - Use `--all` only when done/archived are explicitly requested
 - Prefer `--group project|column` and `--totals` when a grouped summary is requested
+ - For ideas, include scope or project context when listing (root vs project)
 
 ## Formatting rules (chat output)
 - If the output is a flat task list, present a compact table with columns: `Priority | Project | Task` (add `Due` only when provided)
@@ -35,10 +36,13 @@ Route task-related requests to `tasker_cmd` (raw args only, no leading `tasker`)
 ## Selector rules (important)
 - Smart fallback is allowed; if partial, run `resolve "<query>"` (uses smart fallback; `--match search` includes notes/body)
 - Act by ID only when there is exactly one match
+- For ideas, use `idea resolve "<query>"` with `--scope/--project` as needed
 
 ## Text splitting
 - If the user includes ` | ` (space‑pipe‑space), prefer `--text "<title | details | due 2026-01-23>"`
 - Do not guess separators like "but" or "—"; only split on explicit ` | `
+- For ideas, inline `+Project` in the title line sets the project (if `--project` is omitted) and `@context`/`#tag` become tags
+- For long idea content, prefer `idea add --stdin` with piped input to avoid quoting
 
 ## Notes (disambiguation)
 - Prefer `note add <selector...> -- <text...>`; without `--`, tasker attempts to infer the split
@@ -56,3 +60,11 @@ Route task-related requests to `tasker_cmd` (raw args only, no leading `tasker`)
 - "capture <text>" → `capture "<text>" --format telegram`
 - "mark <title> done" → `done "<title>"`
 - "show config" → `config show`
+- "capture idea <text>" → `idea capture "<text>" --format telegram`
+- "add idea <title>" → `idea add "<title>" [--project <name>] --format telegram`
+- "list ideas" → `idea ls [--scope all] --format telegram`
+- "show idea <title>" → `idea show "<title>"`
+- "add note to idea <title>" → `idea note add "<title>" -- "<text>"`
+- "promote idea <title>" → `idea promote "<title>" [--project <name>] [--column <col>] [--link]`
+
+Tip: when promoting ideas, prefer `--link` to retain a backlink to the source idea.
