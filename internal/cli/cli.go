@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -214,6 +215,44 @@ func selectorFilter(ws *store.Workspace, project string, column string, status s
 	}, nil
 }
 
+func resolveIdeaScope(scopeFlag string, project string) (string, error) {
+	scope := strings.TrimSpace(strings.ToLower(scopeFlag))
+	if scope != "" {
+		switch scope {
+		case store.IdeaScopeRoot, store.IdeaScopeProject, store.IdeaScopeAll:
+			// ok
+		default:
+			return "", fmt.Errorf("invalid --scope (use root|project|all)")
+		}
+	}
+	if scope == "" {
+		if strings.TrimSpace(project) != "" {
+			return store.IdeaScopeProject, nil
+		}
+		return store.IdeaScopeRoot, nil
+	}
+	if scope == store.IdeaScopeProject && strings.TrimSpace(project) == "" {
+		return "", errors.New("--scope project requires --project")
+	}
+	return scope, nil
+}
+
+func ideaSelectorFilter(project string, scope string, match string) (store.IdeaSelectorFilter, error) {
+	matchMode, err := normalizeMatchMode(match)
+	if err != nil {
+		return store.IdeaSelectorFilter{}, err
+	}
+	scopeValue, err := resolveIdeaScope(scope, project)
+	if err != nil {
+		return store.IdeaSelectorFilter{}, err
+	}
+	return store.IdeaSelectorFilter{
+		Project: strings.TrimSpace(project),
+		Scope:   scopeValue,
+		Match:   matchMode,
+	}, nil
+}
+
 func handleMatchConflict(cmd string, err error) bool {
 	var mc *store.MatchConflictError
 	if !errors.As(err, &mc) {
@@ -240,6 +279,31 @@ func handleMatchConflict(cmd string, err error) bool {
 		fmt.Fprintf(os.Stderr, "  - %s: %s%s\n", loc, title, due)
 	}
 	fmt.Fprintln(os.Stderr, "Tip: use a more specific title, pass --project/--column/--status/--match, or quote multi-word selectors.")
+	return true
+}
+
+func handleIdeaMatchConflict(cmd string, err error) bool {
+	var mc *store.IdeaMatchConflictError
+	if !errors.As(err, &mc) {
+		return false
+	}
+	if len(mc.Matches) == 0 {
+		fmt.Fprintf(os.Stderr, "%s: ambiguous selector\n", cmd)
+		return true
+	}
+	fmt.Fprintf(os.Stderr, "%s: multiple ideas match\n", cmd)
+	for _, idea := range mc.Matches {
+		title := strings.TrimSpace(idea.Title)
+		if title == "" {
+			title = "(untitled)"
+		}
+		loc := strings.TrimSpace(idea.Project)
+		if loc == "" {
+			loc = "root"
+		}
+		fmt.Fprintf(os.Stderr, "  - %s: %s\n", loc, title)
+	}
+	fmt.Fprintln(os.Stderr, "Tip: use a more specific selector, --scope/--project, or --match.")
 	return true
 }
 func Run(args []string) int {
@@ -275,6 +339,8 @@ func Run(args []string) int {
 		return cmdConfig(ws, gf, cmdArgs)
 	case "project":
 		return cmdProject(ws, gf, cmdArgs)
+	case "idea", "ideas":
+		return cmdIdea(ws, gf, cmdArgs)
 	case "add":
 		return cmdAdd(ws, gf, cmdArgs)
 	case "capture":
@@ -332,6 +398,15 @@ Commands:
   config set <key> <value>
   project add "<name>"
   project ls
+  idea add "<title>" [--project <name>] [--body <text>] [--tag <t>...] [--stdin]
+  idea add --text "<title | details | #tag>" [--project <name>] [--stdin]
+  idea capture "<title | details | #tag>" [--project <name>] [--stdin]
+  idea ls [--scope root|project|all] [--project <name>] [--tag <t>] [--search <q>]
+  idea show [--scope root|project|all] [--project <name>] [--match <m>] <selector...>
+  idea resolve [--scope root|project|all] [--project <name>] [--match <m>] <selector...>
+  idea note add [--scope root|project|all] [--project <name>] [--match <m>] <selector...> -- <text...>
+  idea append [--scope root|project|all] [--project <name>] [--match <m>] <selector...> -- <text...>
+  idea promote [--scope root|project|all] [--project <name>] [--to-project <name>] [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...] [--link] [--delete] <selector...>
   add "<title>" --project <name> [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...] [--desc <text>|--details <text>]
   add --text "<title | details | due 2026-01-23>" --project <name> [--column <col>] [--priority <p>] [--tag <t>...]
   capture "<title | details | due 2026-01-23>" [--project <name>] [--column <col>] [--priority <p>] [--tag <t>...]
@@ -776,6 +851,787 @@ func cmdProject(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	}
 }
 
+func cmdIdea(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker idea <add|capture|ls|show|resolve|note|append|promote> ...")
+		return ExitUsage
+	}
+	sub := args[0]
+	switch sub {
+	case "add":
+		return cmdIdeaAdd(ws, gf, args[1:])
+	case "capture":
+		return cmdIdeaCapture(ws, gf, args[1:])
+	case "ls", "list":
+		return cmdIdeaList(ws, gf, args[1:])
+	case "show":
+		return cmdIdeaShow(ws, gf, args[1:])
+	case "resolve":
+		return cmdIdeaResolve(ws, gf, args[1:])
+	case "note":
+		return cmdIdeaNote(ws, gf, args[1:])
+	case "append":
+		return cmdIdeaAppend(ws, gf, args[1:])
+	case "promote":
+		return cmdIdeaPromote(ws, gf, args[1:])
+	default:
+		fmt.Fprintln(os.Stderr, "Usage: tasker idea <add|capture|ls|show|resolve|note|append|promote> ...")
+		return ExitUsage
+	}
+}
+
+func cmdIdeaAdd(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--project": true,
+		"--body":    true,
+		"--text":    true,
+		"--tag":     true,
+		"--stdin":   false,
+	})
+	fs := flag.NewFlagSet("idea add", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug (optional)")
+	body := fs.String("body", "", "Body text")
+	text := fs.String("text", "", "Raw input using \" | \" separators")
+	stdin := fs.Bool("stdin", false, "Read idea content from stdin")
+	searchTag := multiFlag{}
+	fs.Var(&searchTag, "tag", "Tag (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	if len(rest) == 1 && rest[0] == "-" {
+		*stdin = true
+		rest = rest[:0]
+	}
+	textValue := strings.TrimSpace(*text)
+	if textValue != "" && strings.TrimSpace(*body) != "" {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --text or --body")
+		return ExitUsage
+	}
+	if *stdin && (textValue != "" || strings.TrimSpace(*body) != "") {
+		fmt.Fprintln(os.Stderr, "Usage: --stdin cannot be combined with --text or --body")
+		return ExitUsage
+	}
+	if textValue != "" && len(rest) > 0 {
+		fmt.Fprintln(os.Stderr, "Usage: provide either --text or a title, not both")
+		return ExitUsage
+	}
+	if !*stdin && textValue == "" && len(rest) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker idea add \"<title>\" [--project <name>] [--body <text>]")
+		return ExitUsage
+	}
+	var title string
+	var bodyText string
+	var tags []string
+	projectName := strings.TrimSpace(*project)
+	if *stdin {
+		stdinText, err := readStdinText()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "idea add:", err)
+			return ExitUsage
+		}
+		if len(rest) > 0 {
+			rawTitle := strings.Join(rest, " ")
+			cleanTitle, projectFromText, inlineTags := extractIdeaInlineTokens(rawTitle, true, true)
+			if strings.TrimSpace(cleanTitle) == "" {
+				fmt.Fprintln(os.Stderr, "Usage: tasker idea add \"<title>\" [--project <name>] [--body <text>]")
+				return ExitUsage
+			}
+			parsedTitle, parsedTags, parsedBody := store.ParseIdeaContent(cleanTitle + "\n" + stdinText)
+			title = strings.TrimSpace(parsedTitle)
+			bodyText = parsedBody
+			tags = append(tags, parsedTags...)
+			tags = append(tags, inlineTags...)
+			if projectName == "" {
+				projectName = projectFromText
+			}
+		} else {
+			parsedTitle, parsedTags, parsedBody := store.ParseIdeaContent(stdinText)
+			cleanTitle, projectFromText, inlineTags := extractIdeaInlineTokens(parsedTitle, true, true)
+			title = strings.TrimSpace(cleanTitle)
+			bodyText = parsedBody
+			tags = append(tags, parsedTags...)
+			tags = append(tags, inlineTags...)
+			if projectName == "" {
+				projectName = projectFromText
+			}
+		}
+		if strings.TrimSpace(title) == "" {
+			fmt.Fprintln(os.Stderr, "Usage: tasker idea add \"<title>\" [--project <name>] [--body <text>]")
+			return ExitUsage
+		}
+		tags = append(tags, searchTag.Values...)
+	} else if textValue != "" {
+		var projectFromText string
+		title, bodyText, tags, projectFromText = parseIdeaTextParts(textValue)
+		if strings.TrimSpace(title) == "" {
+			fmt.Fprintln(os.Stderr, "Usage: idea add --text \"<title | details | #tag>\" [--project <name>]")
+			return ExitUsage
+		}
+		if projectName == "" {
+			projectName = projectFromText
+		}
+		tags = append(tags, searchTag.Values...)
+	} else {
+		rawTitle := strings.Join(rest, " ")
+		cleanTitle, projectFromText, inlineTags := extractIdeaInlineTokens(rawTitle, true, true)
+		title = strings.TrimSpace(cleanTitle)
+		bodyText = strings.TrimSpace(*body)
+		tags = append(tags, inlineTags...)
+		tags = append(tags, searchTag.Values...)
+		if projectName == "" {
+			projectName = projectFromText
+		}
+		if title == "" {
+			fmt.Fprintln(os.Stderr, "Usage: tasker idea add \"<title>\" [--project <name>] [--body <text>]")
+			return ExitUsage
+		}
+	}
+	input := store.AddIdeaInput{
+		Title:   strings.TrimSpace(title),
+		Project: strings.TrimSpace(projectName),
+		Body:    bodyText,
+		Tags:    tags,
+	}
+	idea, err := ws.AddIdea(input)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "idea add:", err)
+		return ExitInternal
+	}
+	return emitIdeaAddResult(gf, idea)
+}
+
+func cmdIdeaCapture(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--project": true,
+		"--text":    true,
+		"--tag":     true,
+		"--stdin":   false,
+	})
+	fs := flag.NewFlagSet("idea capture", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "Project name/slug (optional)")
+	text := fs.String("text", "", "Raw input using \" | \" separators")
+	stdin := fs.Bool("stdin", false, "Read idea content from stdin")
+	searchTag := multiFlag{}
+	fs.Var(&searchTag, "tag", "Tag (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	if len(rest) == 1 && rest[0] == "-" {
+		*stdin = true
+		rest = rest[:0]
+	}
+	textValue := strings.TrimSpace(*text)
+	if *stdin && textValue != "" {
+		fmt.Fprintln(os.Stderr, "Usage: --stdin cannot be combined with --text")
+		return ExitUsage
+	}
+	if textValue != "" && len(rest) > 0 {
+		fmt.Fprintln(os.Stderr, "Usage: provide either --text or capture text, not both")
+		return ExitUsage
+	}
+	projectName := strings.TrimSpace(*project)
+	var title string
+	var bodyText string
+	var tags []string
+	if *stdin {
+		stdinText, err := readStdinText()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "idea capture:", err)
+			return ExitUsage
+		}
+		if len(rest) > 0 {
+			rawTitle := strings.Join(rest, " ")
+			cleanTitle, projectFromText, inlineTags := extractIdeaInlineTokens(rawTitle, true, true)
+			if strings.TrimSpace(cleanTitle) == "" {
+				fmt.Fprintln(os.Stderr, "Usage: tasker idea capture \"<title | details | #tag>\" [--project <name>]")
+				return ExitUsage
+			}
+			parsedTitle, parsedTags, parsedBody := store.ParseIdeaContent(cleanTitle + "\n" + stdinText)
+			title = strings.TrimSpace(parsedTitle)
+			bodyText = parsedBody
+			tags = append(tags, parsedTags...)
+			tags = append(tags, inlineTags...)
+			if projectName == "" {
+				projectName = projectFromText
+			}
+		} else {
+			parsedTitle, parsedTags, parsedBody := store.ParseIdeaContent(stdinText)
+			cleanTitle, projectFromText, inlineTags := extractIdeaInlineTokens(parsedTitle, true, true)
+			title = strings.TrimSpace(cleanTitle)
+			bodyText = parsedBody
+			tags = append(tags, parsedTags...)
+			tags = append(tags, inlineTags...)
+			if projectName == "" {
+				projectName = projectFromText
+			}
+		}
+	} else {
+		if textValue == "" {
+			textValue = strings.Join(rest, " ")
+		}
+		if strings.TrimSpace(textValue) == "" {
+			fmt.Fprintln(os.Stderr, "Usage: tasker idea capture \"<title | details | #tag>\" [--project <name>]")
+			return ExitUsage
+		}
+		var projectFromText string
+		title, bodyText, tags, projectFromText = parseIdeaTextParts(textValue)
+		if projectName == "" {
+			projectName = projectFromText
+		}
+	}
+	if strings.TrimSpace(title) == "" {
+		fmt.Fprintln(os.Stderr, "Usage: tasker idea capture \"<title | details | #tag>\" [--project <name>]")
+		return ExitUsage
+	}
+	tags = append(tags, searchTag.Values...)
+	input := store.AddIdeaInput{
+		Title:   strings.TrimSpace(title),
+		Project: strings.TrimSpace(projectName),
+		Body:    bodyText,
+		Tags:    tags,
+	}
+	idea, err := ws.AddIdea(input)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "idea capture:", err)
+		return ExitInternal
+	}
+	return emitIdeaAddResult(gf, idea)
+}
+
+func cmdIdeaList(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--scope":   true,
+		"--project": true,
+		"--tag":     true,
+		"--search":  true,
+	})
+	fs := flag.NewFlagSet("idea ls", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	scope := fs.String("scope", "", "Scope (root|project|all)")
+	project := fs.String("project", "", "Project name/slug")
+	tag := fs.String("tag", "", "Filter by tag (single)")
+	search := fs.String("search", "", "Search query (title/body)")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	scopeValue, err := resolveIdeaScope(*scope, *project)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "idea ls:", err)
+		return ExitUsage
+	}
+	filter := store.IdeaListFilter{
+		Project: *project,
+		Scope:   scopeValue,
+		Tag:     *tag,
+		Search:  *search,
+	}
+	ideas, err := ws.ListIdeas(filter)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "idea ls:", err)
+		return ExitInternal
+	}
+	if gf.NDJSON {
+		if gf.StdoutNDJSON {
+			for _, idea := range ideas {
+				b, _ := json.Marshal(idea)
+				fmt.Println(string(b))
+			}
+		} else {
+			items := make([]any, 0, len(ideas))
+			for i := range ideas {
+				items = append(items, ideas[i])
+			}
+			path, err := writeNDJSONExport(gf, "ideas", items)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "idea ls:", err)
+				return ExitInternal
+			}
+			if !gf.Quiet {
+				fmt.Println("Wrote NDJSON to:", path)
+			}
+		}
+		return ExitOK
+	}
+	if gf.Plain {
+		fmt.Fprintln(os.Stdout, "ID\tSCOPE\tPROJECT\tTITLE\tTAGS")
+		for _, idea := range ideas {
+			scopeLabel := "root"
+			projectLabel := "-"
+			if idea.Project != "" {
+				scopeLabel = "project"
+				projectLabel = idea.Project
+			}
+			fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\t%s\n",
+				idea.ID, scopeLabel, projectLabel, idea.Title, strings.Join(idea.Tags, ","))
+		}
+		return ExitOK
+	}
+	if gf.JSON {
+		if gf.StdoutJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(map[string]any{"ideas": ideas})
+		} else {
+			path, err := writeJSONExport(gf, "ideas", map[string]any{"ideas": ideas})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "idea ls:", err)
+				return ExitInternal
+			}
+			if !gf.Quiet {
+				fmt.Println("Wrote JSON to:", path)
+			}
+		}
+		return ExitOK
+	}
+	for _, idea := range ideas {
+		fmt.Fprintln(os.Stdout, formatIdeaListBullet(idea))
+	}
+	return ExitOK
+}
+
+func cmdIdeaShow(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--scope":   true,
+		"--project": true,
+		"--match":   true,
+	})
+	fs := flag.NewFlagSet("idea show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	scope := fs.String("scope", "", "Scope (root|project|all)")
+	project := fs.String("project", "", "Project name/slug")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker idea show [--scope root|project|all] [--project <name>] [--match <m>] <selector>")
+		return ExitUsage
+	}
+	selector := strings.Join(rest, " ")
+	filter, err := ideaSelectorFilter(*project, *scope, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "idea show:", err)
+		return ExitUsage
+	}
+	idea, err := ws.GetIdeaBySelectorFiltered(selector, filter)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr, "idea show: not found")
+			return ExitNotFound
+		}
+		if errors.Is(err, store.ErrConflict) {
+			if handleIdeaMatchConflict("idea show", err) {
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, "idea show: ambiguous selector")
+			return ExitConflict
+		}
+		fmt.Fprintln(os.Stderr, "idea show:", err)
+		return ExitInternal
+	}
+	if gf.JSON {
+		if gf.StdoutJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(map[string]any{"idea": idea, "body": idea.Body})
+		} else {
+			path, err := writeJSONExport(gf, "idea", map[string]any{"idea": idea, "body": idea.Body})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "idea show:", err)
+				return ExitInternal
+			}
+			if !gf.Quiet {
+				fmt.Println("Wrote JSON to:", path)
+			}
+		}
+		return ExitOK
+	}
+	fmt.Println(idea.RenderHuman())
+	return ExitOK
+}
+
+func cmdIdeaResolve(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--scope":   true,
+		"--project": true,
+		"--match":   true,
+	})
+	fs := flag.NewFlagSet("idea resolve", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	scope := fs.String("scope", "", "Scope (root|project|all)")
+	project := fs.String("project", "", "Project name/slug")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker idea resolve [--scope root|project|all] [--project <name>] [--match <m>] <selector>")
+		return ExitUsage
+	}
+	selector := strings.Join(rest, " ")
+	filter, err := ideaSelectorFilter(*project, *scope, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "idea resolve:", err)
+		return ExitUsage
+	}
+	matches, err := ws.ResolveIdeas(selector, filter)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr, "idea resolve: not found")
+			return ExitNotFound
+		}
+		if errors.Is(err, store.ErrInvalid) {
+			fmt.Fprintln(os.Stderr, "idea resolve: invalid selector")
+			return ExitUsage
+		}
+		fmt.Fprintln(os.Stderr, "idea resolve:", err)
+		return ExitInternal
+	}
+	type resolveIdeaMatch struct {
+		ID      string   `json:"id"`
+		Title   string   `json:"title"`
+		Project string   `json:"project"`
+		Tags    []string `json:"tags"`
+	}
+	out := make([]resolveIdeaMatch, 0, len(matches))
+	for _, idea := range matches {
+		out = append(out, resolveIdeaMatch{
+			ID:      idea.ID,
+			Title:   idea.Title,
+			Project: idea.Project,
+			Tags:    idea.Tags,
+		})
+	}
+	payload := map[string]any{
+		"selector": selector,
+		"count":    len(out),
+		"matches":  out,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(payload)
+	if len(out) == 0 {
+		return ExitNotFound
+	}
+	return ExitOK
+}
+
+func cmdIdeaPromote(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	args = reorderFlags(args, map[string]bool{
+		"--scope":      true,
+		"--project":    true,
+		"--match":      true,
+		"--to-project": true,
+		"--column":     true,
+		"--due":        true,
+		"--priority":   true,
+		"--tag":        true,
+		"--today":      false,
+		"--tomorrow":   false,
+		"--next-week":  false,
+		"--link":       false,
+		"--delete":     false,
+	})
+	fs := flag.NewFlagSet("idea promote", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	scope := fs.String("scope", "", "Scope (root|project|all)")
+	project := fs.String("project", "", "Idea project name/slug")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
+	toProject := fs.String("to-project", "", "Target task project name/slug")
+	column := fs.String("column", "inbox", "Target column id (inbox|todo|doing|blocked|done|archive)")
+	due := fs.String("due", "", "Due date (YYYY-MM-DD) or RFC3339")
+	dueToday := fs.Bool("today", false, "Shortcut: due today")
+	dueTomorrow := fs.Bool("tomorrow", false, "Shortcut: due tomorrow")
+	dueNextWeek := fs.Bool("next-week", false, "Shortcut: due in 7 days")
+	priority := fs.String("priority", "", "Priority (low|normal|high|urgent)")
+	searchTag := multiFlag{}
+	fs.Var(&searchTag, "tag", "Tag (repeatable)")
+	link := fs.Bool("link", false, "Add a backlink to the idea in task notes")
+	deleteIdea := fs.Bool("delete", false, "Delete idea after promoting")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: tasker idea promote [--scope root|project|all] [--project <name>] [--to-project <name>] [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...] [--link] [--delete] <selector>")
+		return ExitUsage
+	}
+	if strings.TrimSpace(*due) != "" && (*dueToday || *dueTomorrow || *dueNextWeek) {
+		fmt.Fprintln(os.Stderr, "Usage: --due cannot be combined with --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	if *dueToday && (*dueTomorrow || *dueNextWeek) {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	if *dueTomorrow && *dueNextWeek {
+		fmt.Fprintln(os.Stderr, "Usage: choose only one of --today/--tomorrow/--next-week")
+		return ExitUsage
+	}
+	selector := strings.Join(rest, " ")
+	filter, err := ideaSelectorFilter(*project, *scope, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "idea promote:", err)
+		return ExitUsage
+	}
+	idea, err := ws.GetIdeaBySelectorFiltered(selector, filter)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr, "idea promote: not found")
+			return ExitNotFound
+		}
+		if errors.Is(err, store.ErrConflict) {
+			if handleIdeaMatchConflict("idea promote", err) {
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, "idea promote: ambiguous selector")
+			return ExitConflict
+		}
+		fmt.Fprintln(os.Stderr, "idea promote:", err)
+		return ExitInternal
+	}
+	targetProject := strings.TrimSpace(*toProject)
+	if targetProject == "" {
+		if idea.Project != "" {
+			targetProject = idea.Project
+		} else {
+			targetProject = resolveProject(ws, "")
+		}
+	}
+	dueValue := strings.TrimSpace(*due)
+	now := time.Now().UTC()
+	if *dueToday {
+		dueValue = now.Format("2006-01-02")
+	}
+	if *dueTomorrow {
+		dueValue = now.AddDate(0, 0, 1).Format("2006-01-02")
+	}
+	if *dueNextWeek {
+		dueValue = now.AddDate(0, 0, 7).Format("2006-01-02")
+	}
+	title := strings.TrimSpace(idea.Title)
+	if title == "" {
+		title = "(untitled idea)"
+	}
+	tags := append([]string{}, idea.Tags...)
+	tags = append(tags, searchTag.Values...)
+	desc := strings.TrimSpace(idea.Body)
+	if *link {
+		linkLine := ideaBacklinkLine(ws, idea)
+		if desc == "" {
+			desc = linkLine
+		} else {
+			desc = desc + "\n\n" + linkLine
+		}
+	}
+	input := store.AddTaskInput{
+		Title:       title,
+		Project:     strings.TrimSpace(targetProject),
+		Column:      strings.TrimSpace(*column),
+		Due:         strings.TrimSpace(dueValue),
+		Priority:    strings.TrimSpace(*priority),
+		Tags:        tags,
+		Description: desc,
+	}
+	task, err := ws.AddTask(input)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "idea promote:", err)
+		return ExitInternal
+	}
+	code := emitAddResult(ws, gf, task, desc)
+	if *deleteIdea {
+		if err := ws.DeleteIdea(idea); err != nil {
+			fmt.Fprintln(os.Stderr, "idea promote:", err)
+			return ExitInternal
+		}
+		if !gf.Quiet && gf.Format != "telegram" && !gf.JSON && !gf.NDJSON {
+			fmt.Println("Removed idea:", title)
+		}
+	}
+	return code
+}
+
+func ideaNoteUsage(label string) string {
+	return fmt.Sprintf("Usage: tasker %s [--scope root|project|all] [--project <name>] [--match <m>] <selector...> -- <text...>", label)
+}
+
+func cmdIdeaNote(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, ideaNoteUsage("idea note add"))
+		return ExitUsage
+	}
+	sub := args[0]
+	if sub != "add" {
+		fmt.Fprintln(os.Stderr, ideaNoteUsage("idea note add"))
+		return ExitUsage
+	}
+	return cmdIdeaNoteAdd(ws, gf, args[1:], "idea note add", "idea note")
+}
+
+func cmdIdeaAppend(ws *store.Workspace, gf GlobalFlags, args []string) int {
+	return cmdIdeaNoteAdd(ws, gf, args, "idea append", "idea append")
+}
+
+func cmdIdeaNoteAdd(ws *store.Workspace, gf GlobalFlags, args []string, usageLabel string, errLabel string) int {
+	rawArgs := args
+	noteSplit := -1
+	for i, arg := range rawArgs {
+		if arg == "--" {
+			noteSplit = i
+			break
+		}
+	}
+	var noteTokens []string
+	if noteSplit >= 0 {
+		noteTokens = rawArgs[noteSplit+1:]
+		rawArgs = rawArgs[:noteSplit]
+	}
+	args = reorderFlags(rawArgs, map[string]bool{
+		"--scope":   true,
+		"--project": true,
+		"--match":   true,
+	})
+	fs := flag.NewFlagSet(usageLabel, flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	scope := fs.String("scope", "", "Scope (root|project|all)")
+	project := fs.String("project", "", "Project name/slug")
+	match := fs.String("match", "auto", "Match mode (auto|exact|prefix|contains|search)")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := fs.Args()
+	filter, err := ideaSelectorFilter(*project, *scope, *match)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, errLabel+":", err)
+		return ExitUsage
+	}
+	var selector string
+	var text string
+	if len(noteTokens) > 0 {
+		if len(rest) == 0 {
+			fmt.Fprintln(os.Stderr, ideaNoteUsage(usageLabel))
+			return ExitUsage
+		}
+		selector = strings.Join(rest, " ")
+		text = strings.Join(noteTokens, " ")
+	} else {
+		if len(rest) < 2 {
+			fmt.Fprintln(os.Stderr, ideaNoteUsage(usageLabel))
+			return ExitUsage
+		}
+		selector, text, err = splitIdeaNoteInput(ws, filter, rest)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				fmt.Fprintln(os.Stderr, errLabel+": not found")
+				return ExitNotFound
+			}
+			if err.Error() == "ambiguous selector split" {
+				fmt.Fprintln(os.Stderr, errLabel+": ambiguous selector; use -- to separate selector and note text")
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, errLabel+":", err)
+			return ExitInternal
+		}
+	}
+	if strings.TrimSpace(text) == "" {
+		fmt.Fprintln(os.Stderr, errLabel+": text is required (use -- to separate selector and note text)")
+		return ExitUsage
+	}
+	idea, err := ws.GetIdeaBySelectorFiltered(selector, filter)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr, errLabel+": not found")
+			return ExitNotFound
+		}
+		if errors.Is(err, store.ErrConflict) {
+			if handleIdeaMatchConflict(errLabel, err) {
+				return ExitConflict
+			}
+			fmt.Fprintln(os.Stderr, errLabel+": ambiguous selector")
+			return ExitConflict
+		}
+		fmt.Fprintln(os.Stderr, errLabel+":", err)
+		return ExitInternal
+	}
+	idea, err = ws.AddIdeaNote(idea, strings.TrimSpace(text))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, errLabel+":", err)
+		return ExitInternal
+	}
+	if gf.JSON {
+		if gf.StdoutJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(map[string]any{"idea": idea})
+		} else {
+			path, err := writeJSONExport(gf, "idea", map[string]any{"idea": idea})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "idea note:", err)
+				return ExitInternal
+			}
+			if !gf.Quiet {
+				fmt.Println("Wrote JSON to:", path)
+			}
+		}
+		return ExitOK
+	}
+	title := strings.TrimSpace(idea.Title)
+	if title == "" {
+		title = "(untitled)"
+	}
+	fmt.Printf("Noted idea %s\n", title)
+	return ExitOK
+}
+
+func emitIdeaAddResult(gf GlobalFlags, idea *store.Idea) int {
+	if gf.NDJSON {
+		if gf.StdoutNDJSON {
+			b, _ := json.Marshal(idea)
+			fmt.Println(string(b))
+		} else {
+			path, err := writeNDJSONExport(gf, "idea", []any{idea})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "idea add:", err)
+				return ExitInternal
+			}
+			if !gf.Quiet {
+				fmt.Println("Wrote NDJSON to:", path)
+			}
+		}
+		return ExitOK
+	}
+	if gf.JSON {
+		if gf.StdoutJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(map[string]any{"idea": idea})
+		} else {
+			path, err := writeJSONExport(gf, "idea", map[string]any{"idea": idea})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "idea add:", err)
+				return ExitInternal
+			}
+			if !gf.Quiet {
+				fmt.Println("Wrote JSON to:", path)
+			}
+		}
+		return ExitOK
+	}
+	titleText := strings.TrimSpace(idea.Title)
+	if titleText == "" {
+		titleText = "(untitled)"
+	}
+	loc := ideaLocationLabel(idea.Project)
+	fmt.Printf("Added idea (%s): %s\n", loc, titleText)
+	return ExitOK
+}
+
 func emitAddResult(ws *store.Workspace, gf GlobalFlags, task *store.Task, descText string) int {
 	if gf.NDJSON {
 		if gf.StdoutNDJSON {
@@ -1182,6 +2038,44 @@ func formatListBullet(t store.Task) string {
 	return fmt.Sprintf("- %s%s: %s%s", label, loc, title, due)
 }
 
+func ideaLocationLabel(project string) string {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return "root"
+	}
+	return project
+}
+
+func formatIdeaListBullet(idea store.Idea) string {
+	title := strings.TrimSpace(idea.Title)
+	if title == "" {
+		title = "(untitled)"
+	}
+	loc := ideaLocationLabel(idea.Project)
+	snippet := cleanSummary(idea.Body, 140)
+	if snippet != "" {
+		return fmt.Sprintf("- %s: %s — %s", loc, title, snippet)
+	}
+	return fmt.Sprintf("- %s: %s", loc, title)
+}
+
+func ideaBacklinkLine(ws *store.Workspace, idea *store.Idea) string {
+	if idea == nil {
+		return ""
+	}
+	scope := ideaLocationLabel(idea.Project)
+	path := idea.Path
+	if ws != nil && strings.TrimSpace(ws.Root) != "" && strings.TrimSpace(idea.Path) != "" {
+		if rel, err := filepath.Rel(ws.Root, idea.Path); err == nil {
+			path = rel
+		}
+	}
+	if path != "" {
+		return fmt.Sprintf("Source idea: %s (%s, %s)", idea.ID, scope, path)
+	}
+	return fmt.Sprintf("Source idea: %s (%s)", idea.ID, scope)
+}
+
 func columnLabel(ws *store.Workspace, colID string) string {
 	colID = strings.TrimSpace(colID)
 	if colID == "" {
@@ -1260,6 +2154,18 @@ func formatDueShort(due string) string {
 	return due
 }
 
+func readStdinText() (string, error) {
+	b, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", err
+	}
+	text := string(b)
+	if strings.TrimSpace(text) == "" {
+		return "", errors.New("stdin is empty")
+	}
+	return text, nil
+}
+
 func splitPipeParts(text string) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -1294,13 +2200,97 @@ func parseTagsPart(text string) []string {
 	fields := strings.Fields(text)
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
-		f = strings.TrimSpace(strings.TrimPrefix(f, "#"))
+		f = strings.TrimSpace(strings.TrimLeft(f, "#@+"))
 		if f == "" {
 			continue
 		}
 		out = append(out, f)
 	}
 	return out
+}
+
+func extractIdeaInlineTokens(text string, strip bool, allowProject bool) (string, string, []string) {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return text, "", nil
+	}
+	var kept []string
+	project := ""
+	var tags []string
+	for _, field := range fields {
+		token := trimIdeaTokenPunct(field)
+		if token == "" {
+			continue
+		}
+		if strings.HasPrefix(token, "+") && isIdeaToken(token[1:]) {
+			if allowProject && project == "" {
+				project = token[1:]
+			} else {
+				tags = append(tags, token[1:])
+			}
+			if strip {
+				continue
+			}
+		}
+		if strings.HasPrefix(token, "@") && isIdeaToken(token[1:]) {
+			tags = append(tags, token[1:])
+			if strip {
+				continue
+			}
+		}
+		if strings.HasPrefix(token, "#") && isIdeaToken(token[1:]) {
+			tags = append(tags, token[1:])
+			if strip {
+				continue
+			}
+		}
+		if strip {
+			kept = append(kept, field)
+		}
+	}
+	if strip {
+		return strings.Join(kept, " "), project, tags
+	}
+	return text, project, tags
+}
+
+func trimIdeaTokenPunct(token string) string {
+	return strings.TrimRightFunc(token, func(r rune) bool {
+		switch r {
+		case ',', '.', ';', ':':
+			return true
+		default:
+			return false
+		}
+	})
+}
+
+func isIdeaToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !isIdeaTokenChar(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isIdeaTokenChar(r rune) bool {
+	if r >= 'a' && r <= 'z' {
+		return true
+	}
+	if r >= 'A' && r <= 'Z' {
+		return true
+	}
+	if r >= '0' && r <= '9' {
+		return true
+	}
+	if r == '-' || r == '_' {
+		return true
+	}
+	return false
 }
 
 func parsePriorityToken(text string) string {
@@ -1457,6 +2447,48 @@ func parseTextParts(text string) (string, string, string, string, []string) {
 	return title, detailText, due, priority, tags
 }
 
+func parseIdeaTextParts(text string) (string, string, []string, string) {
+	parts := splitPipeParts(text)
+	if len(parts) == 0 {
+		return "", "", nil, ""
+	}
+	cleanTitle, project, tags := extractIdeaInlineTokens(parts[0], true, true)
+	title := strings.TrimSpace(cleanTitle)
+	var details []string
+	for _, part := range parts[1:] {
+		if part == "" {
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "tag "); ok {
+			tags = append(tags, parseTagsPart(value)...)
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "tag:"); ok {
+			tags = append(tags, parseTagsPart(value)...)
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "tags "); ok {
+			tags = append(tags, parseTagsPart(value)...)
+			continue
+		}
+		if value, ok := cutPrefixFold(part, "tags:"); ok {
+			tags = append(tags, parseTagsPart(value)...)
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(part), "#") {
+			tags = append(tags, parseTagsPart(part)...)
+			continue
+		}
+		cleanPart, _, inlineTags := extractIdeaInlineTokens(part, false, false)
+		if len(inlineTags) > 0 {
+			tags = append(tags, inlineTags...)
+		}
+		details = append(details, cleanPart)
+	}
+	detailText := strings.TrimSpace(strings.Join(details, " — "))
+	return title, detailText, tags, project
+}
+
 func splitNoteInput(ws *store.Workspace, filter store.SelectorFilter, tokens []string) (string, string, string, error) {
 	if len(tokens) < 2 {
 		return "", "", "", errors.New("note input requires selector and text")
@@ -1487,6 +2519,38 @@ func splitNoteInput(ws *store.Workspace, filter store.SelectorFilter, tokens []s
 		return "", "", "", store.ErrNotFound
 	}
 	return selectedID, selectedSelector, selectedText, nil
+}
+
+func splitIdeaNoteInput(ws *store.Workspace, filter store.IdeaSelectorFilter, tokens []string) (string, string, error) {
+	if len(tokens) < 2 {
+		return "", "", errors.New("note input requires selector and text")
+	}
+	var selectedID string
+	var selectedSelector string
+	var selectedText string
+	for i := len(tokens) - 1; i >= 1; i-- {
+		selector := strings.Join(tokens[:i], " ")
+		text := strings.Join(tokens[i:], " ")
+		matches, err := ws.ResolveIdeas(selector, filter)
+		if err != nil {
+			continue
+		}
+		if len(matches) != 1 {
+			continue
+		}
+		if selectedID != "" && matches[0].ID != selectedID {
+			return "", "", errors.New("ambiguous selector split")
+		}
+		if selectedID == "" {
+			selectedID = matches[0].ID
+			selectedSelector = selector
+			selectedText = text
+		}
+	}
+	if selectedID == "" {
+		return "", "", store.ErrNotFound
+	}
+	return selectedSelector, selectedText, nil
 }
 
 func cmdShow(ws *store.Workspace, gf GlobalFlags, args []string) int {

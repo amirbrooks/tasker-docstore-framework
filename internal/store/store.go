@@ -156,6 +156,9 @@ func (w *Workspace) Init(defaultProject string) error {
 	if err := os.MkdirAll(filepath.Join(w.Root, "projects"), 0o755); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Join(w.Root, "ideas"), 0o755); err != nil {
+		return err
+	}
 
 	if err := w.ensureConfig(); err != nil {
 		return err
@@ -241,8 +244,12 @@ func (w *Workspace) CreateProject(name string) (*Project, error) {
 
 	projDir := filepath.Join(w.Root, "projects", slug)
 	columnsDir := filepath.Join(projDir, "columns")
+	ideasDir := filepath.Join(projDir, "ideas")
 
 	if err := os.MkdirAll(columnsDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(ideasDir, 0o755); err != nil {
 		return nil, err
 	}
 	// Ensure column dirs
