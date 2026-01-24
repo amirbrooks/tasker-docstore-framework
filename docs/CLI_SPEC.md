@@ -54,6 +54,43 @@ Create a project (slugified).
 ### `tasker project ls`
 List projects.
 
+### `tasker idea add "<title>" [--project <name>] [--body <text>] [--tag <t>...] [--stdin]`
+Create a plain-text idea. If `--project` is omitted, the idea is stored at the root.
+
+### `tasker idea add --text "<title | details | #tag>" [--project <name>] [--stdin]`
+Create an idea from a single text string. Split parts with ` | ` (space‑pipe‑space).
+
+### `tasker idea capture "<title | details | #tag>" [--project <name>] [--stdin]`
+Quick add using the same pipe parsing.
+If `--stdin` is set (or the lone `-` token is used), the idea is read from stdin.
+
+### `tasker idea ls [--scope root|project|all] [--project <name>] [--tag <t>] [--search <q>]`
+List ideas. Defaults to root ideas unless `--project` is provided. Use `--scope all` for root + all projects.
+
+### `tasker idea show [--scope root|project|all] [--project <name>] [--match <m>] <selector>`
+Show an idea (title + body). Uses the same selector matching rules as tasks.
+
+### `tasker idea resolve [--scope root|project|all] [--project <name>] [--match <m>] <selector>`
+Return JSON to stdout with matching ideas (IDs included for agents).
+
+### `tasker idea note add [--scope root|project|all] [--project <name>] [--match <m>] <selector> -- <text...>`
+Append a note line to an idea (timestamped).
+
+### `tasker idea append [--scope root|project|all] [--project <name>] [--match <m>] <selector> -- <text...>`
+Alias for `idea note add`.
+
+### `tasker idea promote [--scope root|project|all] [--project <name>] [--to-project <name>] [--column <col>] [--due <date>] [--priority <p>] [--tag <t>...] [--link] [--delete] <selector>`
+Create a task from an idea. Defaults to the idea's project if set, otherwise the default project. Use `--delete` to remove the idea after promotion.
+Use `--link` to append a backlink to the idea in the task notes.
+
+### Idea text shorthand
+When using `idea add`/`idea capture` text input, inline tokens are parsed:
+- `+Project` in the title line sets the project (if `--project` is omitted)
+- `@context` and `#tag` are converted to tags
+Inline `#tag` and `@context` tokens in the body are reflected in the `tags:` line.
+Markdown headings like `# Title` are treated as headings (not tags).
+Fenced code blocks (``` or ~~~) are ignored for tag extraction.
+
 ### `tasker add "<title>" --project <name> [--column <col>] [--due <date>] [--today|--tomorrow|--next-week] [--priority <p>] [--tag <t>...] [--desc <text>|--details <text>]`
 Create a task. If `--project` is omitted, it uses `TASKER_PROJECT` / `agent.default_project` when set (otherwise `Personal`).
 `--details` is an alias for `--desc`. When `--format telegram` is set, `add` prints a lean confirmation line suitable for chat.

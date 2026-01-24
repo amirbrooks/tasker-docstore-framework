@@ -13,6 +13,7 @@ Default root: `~/.tasker` (configurable via `--root` or `TASKER_ROOT`)
 ```
 <root>/
   config.json
+  ideas/
   projects/
     <project-slug>/
       project.json
@@ -23,6 +24,7 @@ Default root: `~/.tasker` (configurable via `--root` or `TASKER_ROOT`)
         03-blocked/
         04-done/
         99-archive/
+      ideas/
 ```
 
 ## Projects
@@ -129,3 +131,34 @@ For v0.1:
 
 - Plain text + JSON + Markdown
 - Works with Git (recommended) for backup/history
+
+## Ideas
+
+Ideas are plain text (no frontmatter), stored either at the root or inside a project.
+
+Locations:
+- Root ideas: `<root>/ideas/`
+- Project ideas: `<root>/projects/<project-slug>/ideas/`
+
+Filename:
+
+`idea_<ULID>__<slug-title>.md`
+
+Example:
+`<root>/ideas/idea_01J4...__draft-onboarding-flow.md`
+
+### Idea file format
+
+First non-empty line is the title. An optional tag line may follow.
+
+```md
+Draft onboarding flow
+tags: product, onboarding
+
+Notes or plaintext body here.
+```
+
+Tags are parsed from the optional `tags:` line and from inline `#tags`.
+The `tags:` line is kept in sync with inline `#tag` and `@context` tokens in the title/body.
+Markdown headings like `# Title` are treated as headings (not tags).
+Fenced code blocks (``` or ~~~) are ignored for tag extraction.

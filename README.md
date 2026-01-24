@@ -153,23 +153,33 @@ tasker add --text "Draft proposal | outline scope | due 2026-01-23" --project Wo
 tasker capture "Quick note | due 2026-01-23"
 ```
 
-4) List tasks:
+4) Capture ideas (plain text):
+```bash
+tasker idea add "Draft onboarding flow"
+tasker idea capture "Pricing experiment | explore enterprise tier | #pricing"
+tasker idea capture "Prototype +Work @design"
+cat notes.txt | tasker idea add --stdin
+tasker idea note add "Draft onboarding flow" -- "share with design"
+tasker idea promote "Pricing experiment" --project Work --column todo
+```
+
+5) List tasks:
 ```bash
 tasker ls --project Work
 tasker ls --project Work --json   # writes JSON to <root>/exports
 ```
 
-5) Due today + overdue:
+6) Due today + overdue:
 ```bash
 tasker tasks --project Work
 ```
 
-6) Board view:
+7) Board view:
 ```bash
 tasker board --project Work --ascii
 ```
 
-7) Week view:
+8) Week view:
 ```bash
 tasker week --project Work --days 7
 ```

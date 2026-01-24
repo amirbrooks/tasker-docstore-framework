@@ -123,6 +123,15 @@ Natural language (preferred):
 - "add Draft proposal | outline scope | due 2026-01-23" -> `add --text "Draft proposal | outline scope | due 2026-01-23" --format telegram`
 - "capture Draft proposal | due 2026-01-23" -> `capture "Draft proposal | due 2026-01-23" --format telegram`
 - "mark done follow up" -> `resolve "follow up"` then `done "<id>"` if exactly one match (IDs stay internal)
+- "capture idea Pricing experiment | #pricing" -> `idea capture "Pricing experiment | #pricing" --format telegram`
+- "list ideas for Work" -> `idea ls --project Work --scope project --format telegram`
+- "add note to idea Pricing experiment" -> `idea note add "Pricing experiment" -- "follow up" --format telegram`
+- "promote idea Pricing experiment" -> `idea promote "Pricing experiment" --project Work --column todo --link --format telegram`
+
+Inline shorthand for ideas:
+- `+Project` in the title line sets the idea project if `--project` is omitted
+- `@context` and `#tag` are converted to tags
+- For long inputs, pipe content to stdin: `cat notes.txt | tasker idea add --stdin`
 
 Slash command (explicit):
 - `/task ls --project Work`
@@ -134,3 +143,7 @@ Slash command (explicit):
 - `/task tasks today --open --group project --totals`
 - `/task config show`
 - `/task resolve "Draft proposal"`
+- `/task idea capture "Pricing experiment | #pricing"`
+- `/task idea ls --scope all`
+- `/task idea note add "Pricing experiment" -- "follow up"`
+- `/task idea promote "Pricing experiment" --project Work --column todo --link`
