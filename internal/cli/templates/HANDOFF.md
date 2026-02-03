@@ -1,0 +1,16 @@
+# Handoff - <PROJECT NAME>
+
+## What I built
+- <2-5 bullet points>
+
+## Why it matters
+<Plain English summary>
+
+## How to test in 3 minutes
+1. ...
+2. ...
+3. ...
+
+## What I need from you
+- [ ] Approve / reject: ...
+- [ ] Optional: allow me to proceed with ...

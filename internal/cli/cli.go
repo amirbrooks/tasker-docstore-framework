@@ -335,6 +335,8 @@ func Run(args []string) int {
 		return cmdInit(ws, gf, cmdArgs)
 	case "onboarding":
 		return cmdOnboarding(ws, gf, cmdArgs)
+	case "workflow":
+		return cmdWorkflow(ws, gf, cmdArgs)
 	case "config", "cfg":
 		return cmdConfig(ws, gf, cmdArgs)
 	case "project":
@@ -394,6 +396,9 @@ Global flags:
 Commands:
   init [--project <name>]
   onboarding
+  workflow init [--workspace <path>] [--file <name>] [--runs-dir <path>] [--templates-dir <path>]
+  workflow prompts init [--prompts-dir <path>] [--night-shift <path>] [--proactive <path>]
+  workflow schedule init [--window <dur>] [--heartbeat-every <dur>] [--heartbeat-prompt <path>]
   config show
   config set <key> <value>
   project add "<name>"
@@ -542,6 +547,19 @@ func cmdOnboarding(ws *store.Workspace, gf GlobalFlags, args []string) int {
 	fmt.Println("Tip: Use --root or TASKER_ROOT to point to a specific store.")
 	fmt.Println("Optional: Add agent defaults in config.json (default project/view, open-only, grouping).")
 	fmt.Println("See current config: tasker config show")
+	fmt.Println()
+	fmt.Println("Optional workspace setup (OpenClaw):")
+	workspace := resolveWorkspacePath("")
+	if workspace != "" {
+		fmt.Println("  Workspace:", workspace)
+		if workflowPath, err := resolveWorkflowConfigPath(workspace, ""); err == nil && workflowPath != "" {
+			fmt.Println("  Workflow file:", workflowPath)
+		}
+		fmt.Println("  Tip: set OPENCLAW_WORKSPACE or --workspace to change the workspace root.")
+	}
+	fmt.Println("  tasker workflow init")
+	fmt.Println("  tasker workflow prompts init")
+	fmt.Println("  tasker workflow schedule init --window 24h --heartbeat-every 2h")
 	return ExitOK
 }
 
