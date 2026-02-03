@@ -884,15 +884,15 @@ func printScheduleExamples(in scheduleExampleInput) {
 		if cron == "" {
 			cron = "0 23 * * *"
 		}
-		fmt.Printf("  openclaw cron add --name \"Night Shift Builder\" --cron \"%s\"%s --session isolated --message \"Read and execute %s. Create spec.md, tasks.md, HANDOFF.md in management/RUNS/YYYY-MM-DD-night-shift/ and send a handoff summary.\"\\n", cron, tzArg, in.NightShiftPath)
+		fmt.Printf("  openclaw cron add --name \"Night Shift Builder\" --cron \"%s\"%s --session isolated --message \"Read and execute %s. Create spec.md, tasks.md, HANDOFF.md in management/RUNS/YYYY-MM-DD-night-shift/ and send a handoff summary.\"\n", cron, tzArg, in.NightShiftPath)
 	}
 
 	heartbeatCron := heartbeatCronExpr(in.HeartbeatEvery)
 	if heartbeatCron == "" {
-		fmt.Printf("  Heartbeat: schedule every %s and use message: \"Read and execute %s\"\\n", in.HeartbeatLabel, in.HeartbeatPath)
+		fmt.Printf("  Heartbeat: schedule every %s and use message: \"Read and execute %s\"\n", in.HeartbeatLabel, in.HeartbeatPath)
 		return
 	}
-	fmt.Printf("  openclaw cron add --name \"Tasker Heartbeat\" --cron \"%s\"%s --session isolated --message \"Read and execute %s\"\\n", heartbeatCron, tzArg, in.HeartbeatPath)
+	fmt.Printf("  openclaw cron add --name \"Tasker Heartbeat\" --cron \"%s\"%s --session isolated --message \"Read and execute %s\"\n", heartbeatCron, tzArg, in.HeartbeatPath)
 }
 
 func heartbeatCronExpr(d time.Duration) string {
