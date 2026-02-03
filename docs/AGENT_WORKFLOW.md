@@ -1,7 +1,8 @@
 # Agent Workflow (spec/tasks/handoff + heartbeat)
 
 This document describes how agents should create run artifacts without changing the CLI.
-It relies on the unified `skills/task` skill and the templates in `docs/templates/`.
+It relies on the unified `skills/task` skill and the templates in `docs/templates/` (which
+are mirrored into the workspace by `tasker workflow init`).
 
 ## Workflow artifacts
 Each run should create three files in the user-selected workspace path:
@@ -11,7 +12,7 @@ Each run should create three files in the user-selected workspace path:
 
 Use the templates from `docs/templates/` to create these files. If direct copying is not
 possible, mirror the headings and structure exactly.
-`tasker workflow init` writes embedded templates that mirror `docs/templates/`.
+`tasker workflow init` writes embedded templates to `<workspace>/management/templates/`.
 The CLI wraps the config section in markers so re-running init is safe:
 ```
 <!-- TASKER_WORKFLOW_START -->
@@ -64,9 +65,9 @@ Example:
 Runs dir: management/RUNS
 Run name: YYYY-MM-DD-<short-name>
 Templates:
-  spec: docs/templates/spec.md
-  tasks: docs/templates/tasks.md
-  handoff: docs/templates/HANDOFF.md
+  spec: management/templates/spec.md
+  tasks: management/templates/tasks.md
+  handoff: management/templates/HANDOFF.md
 Heartbeat mode: suggest
 Heartbeat commands:
   - tasker tasks --project Work --format telegram

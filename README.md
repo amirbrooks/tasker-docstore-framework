@@ -131,6 +131,7 @@ tasker workflow init
 tasker workflow prompts init
 tasker workflow schedule init --window 24h --heartbeat-every 2h
 ```
+Workflow config lives at `management/tasker/workflow.md` in the OpenClaw workspace by default.
 
 ## Install
 

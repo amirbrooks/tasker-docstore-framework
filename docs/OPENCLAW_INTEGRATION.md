@@ -148,6 +148,7 @@ You can scaffold workspace config + templates with:
 ```bash
 tasker workflow init
 ```
+By default this writes `management/tasker/workflow.md` inside the OpenClaw workspace.
 Prompt and schedule helpers:
 ```bash
 tasker workflow prompts init
