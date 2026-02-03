@@ -1,10 +1,21 @@
 Setup (quick):
 
-1) Copy this folder to one of:
-   - `<workspace>/.clawdbot/extensions/tasker/`
-   - `~/.clawdbot/extensions/tasker/`
+OpenClaw discovers plugins from `<workspace>/.openclaw/extensions` and `~/.openclaw/extensions`
+by scanning `*.ts` and `*/index.ts`.
+This plugin ships `openclaw.plugin.json`, which OpenClaw requires.
 
-2) Enable in `~/.clawdbot/clawdbot.json`:
+1) Copy this folder to one of:
+   - `<workspace>/.openclaw/extensions/tasker/`
+   - `~/.openclaw/extensions/tasker/`
+
+   Or install via the CLI (copy or link):
+
+   ```bash
+   openclaw plugins install ./extensions/tasker
+   openclaw plugins install -l ./extensions/tasker
+   ```
+
+2) Enable in `~/.openclaw/openclaw.json`:
 
 ```json
 {
@@ -39,4 +50,4 @@ Setup (quick):
 }
 ```
 
-Full setup: `docs/CLAWDBOT_INTEGRATION.md`
+Full setup: `docs/OPENCLAW_INTEGRATION.md`

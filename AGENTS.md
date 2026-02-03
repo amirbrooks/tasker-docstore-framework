@@ -5,7 +5,7 @@
 - `internal/cli/` handles command parsing and output formatting.
 - `internal/store/` implements docstore storage logic and file operations.
 - `docs/` contains specs (CLI, storage, security) that define expected behavior.
-- `extensions/tasker/` is the Clawdbot plugin (TypeScript); `skills/task/` is the companion skill; `skills/tasker-codex/` is the Codex natural-language skill.
+- `extensions/tasker/` is the OpenClaw plugin (TypeScript); `skills/task/` is the companion skill; `skills/tasker-codex/` is the Codex natural-language skill.
 - `examples/` shows a sample store layout and task files.
 
 ## Build, Test, and Development Commands

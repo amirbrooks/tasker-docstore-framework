@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 
 /**
- * tasker plugin tool for Clawdbot.
+ * tasker plugin tool for OpenClaw.
  *
  * Registers OPTIONAL tool `tasker_cmd` which spawns the `tasker` CLI safely:
  * - shell: false
