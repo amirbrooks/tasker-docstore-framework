@@ -1,18 +1,19 @@
 ---
 name: task
-description: Tasker docstore task + idea management via tool-dispatch. Use for task lists, due today/overdue, week planning, idea capture, promotion, or explicit /task commands.
+description: Tasker docstore task + idea management via tool-dispatch. Use for task lists, due today/overdue, week planning, idea capture/promotion, explicit /task commands, and workspace artifacts (spec/tasks/handoff).
 user-invocable: true
 disable-model-invocation: false
 command-dispatch: tool
 command-tool: tasker_cmd
 command-arg-mode: raw
-metadata: {"clawdbot":{"emoji":"🗂️"}}
+metadata: {"openclaw":{"emoji":"🗂️"}}
 ---
 
 Route task and idea requests to `tasker_cmd` (raw args only, no leading `tasker`).
 
 ## Flow
 1) Detect intent
+- If `agent.require_explicit: true`, only act when the user uses `/task` or explicitly says "tasker"; otherwise ask to confirm.
 - Natural language → translate into CLI args
 - `/task ...` → pass args through unchanged
 
@@ -32,6 +33,22 @@ Route task and idea requests to `tasker_cmd` (raw args only, no leading `tasker`
 - Keep section headers like “Due today” and “Overdue”; do not reorder tasks or invent data
 - Use a monospace code block for alignment; truncate long titles and note truncation if needed
 - Never show IDs in human output
+
+## Workspace artifacts (spec/tasks/handoff)
+- When asked to produce a run (spec/tasks/handoff), use templates from:
+  - `docs/templates/spec.md`
+  - `docs/templates/tasks.md`
+  - `docs/templates/HANDOFF.md`
+- If a workspace config exists (e.g., a "Tasker Workflow" section in `management/tasker/workflow.md`), follow its runs directory and template paths.
+- Default run path: `<workspace>/management/RUNS/<YYYY-MM-DD>-<short-name>/`
+- Create or update `spec.md`, `tasks.md`, `HANDOFF.md` in that run folder.
+- If templates cannot be copied directly, mirror their headings/structure exactly.
+
+## Heartbeat behavior (suggestions only)
+- On heartbeat requests, do **not** run `tasker` commands automatically.
+- Instead, suggest the configured commands to run (from the workspace config), or default to:
+  - `tasker tasks [--project <default>] --format telegram`
+  - `tasker week [--project <default>] --days 7 --format telegram`
 
 ## Selector rules (important)
 - Smart fallback is allowed; if partial, run `resolve "<query>"` (uses smart fallback; `--match search` includes notes/body)

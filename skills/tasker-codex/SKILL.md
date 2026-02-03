@@ -17,6 +17,21 @@ For notes, prefer `./tasker note add <selector...> -- <text...>` to avoid ambigu
 - If users have recurring defaults, suggest `TASKER_PROJECT`, `TASKER_VIEW`, and `TASKER_OPEN_ONLY`.
 - For long idea content, prefer `./tasker idea add --stdin` with piped input.
 
+## Workspace artifacts (spec/tasks/handoff)
+When asked to produce a run (spec/tasks/handoff), use the repo templates:
+- `docs/templates/spec.md`
+- `docs/templates/tasks.md`
+- `docs/templates/HANDOFF.md`
+If the user has a workspace config (e.g., a "Tasker Workflow" section in `management/tasker/workflow.md`), follow its run directory and template paths.  
+Default run path: `<workspace>/management/RUNS/<YYYY-MM-DD>-<short-name>/`.
+See `docs/AGENT_WORKFLOW.md` for the full workflow and example config.
+
+## Heartbeat behavior (suggestions only)
+On heartbeat requests, do **not** run `tasker` commands automatically.  
+Suggest the configured commands to run, or default to:
+- `tasker tasks [--project <default>] --format telegram`
+- `tasker week [--project <default>] --days 7 --format telegram`
+
 ## Intent → command mapping
 - “tasks today”, “what’s due”, “tasks available/running”, “overdue tasks”
   - Run: `./tasker tasks [--project <name>]`
@@ -71,7 +86,7 @@ For notes, prefer `./tasker note add <selector...> -- <text...>` to avoid ambigu
 - Summarize key results in plain text even when exporting JSON.
 
 ## Agent activation (optional config)
-If `<root>/config.json` has `agent.require_explicit: true`, only act when the user explicitly uses `/task` or “tasker”. Otherwise, ask them to confirm running tasker commands.
+If `<root>/config.json` has `agent.require_explicit: true`, only act when the user explicitly uses `/task` or "tasker". Otherwise, ask them to confirm running tasker commands.
 
 ## User preference prompts (first-time setup)
 If no agent defaults are set, ask the user for preferences and suggest adding them to config:

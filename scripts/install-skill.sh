@@ -1,11 +1,11 @@
 #!/usr/bin/env sh
 set -eu
 
-profile="nl"
-dest="${HOME}/.clawdbot/skills"
+profile="unified"
+dest="${HOME}/.openclaw/skills"
 
 usage() {
-  echo "Usage: ./scripts/install-skill.sh [--profile nl|slash] [--dest <skills-dir>]"
+  echo "Usage: ./scripts/install-skill.sh [--dest <skills-dir>] [--profile <name>]"
 }
 
 while [ $# -gt 0 ]; do
@@ -31,11 +31,12 @@ while [ $# -gt 0 ]; do
 done
 
 case "$profile" in
-  nl|natural|default)
+  ""|unified|nl|natural|default)
     src="skills/task"
     ;;
   slash|slash-only)
-    src="skills/task-slash"
+    src="skills/task"
+    echo "Note: slash-only profile is deprecated; installing unified skill instead." >&2
     ;;
   *)
     echo "Unknown profile: $profile" >&2
@@ -55,4 +56,4 @@ if [ -e "$dest/task" ]; then
 fi
 cp -R "$src" "$dest/task"
 
-echo "Installed '$profile' profile to $dest/task"
+echo "Installed unified skill to $dest/task"
