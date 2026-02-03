@@ -20,7 +20,18 @@ tasker add "First task" --project Work --today
 tasker tasks --project Work
 ```
 
-## Setup (CLI + Clawdbot)
+## Setup (CLI + OpenClaw)
+
+0) Bootstrap OpenClaw (recommended):
+
+```bash
+openclaw onboard
+# or
+openclaw configure
+```
+
+OpenClaw stores config at `~/.openclaw/openclaw.json` by default (override with `OPENCLAW_CONFIG_PATH`).
+The default workspace is `~/.openclaw/workspace`.
 
 1) Install the CLI (pick one):
 
@@ -34,13 +45,20 @@ npm install -g @amirbrooks/tasker-docstore
 go install github.com/amirbrooks/tasker-docstore-framework/cmd/tasker@latest
 ```
 
-2) Install the Clawdbot plugin (registers `tasker_cmd`):
+2) Install the OpenClaw plugin (registers `tasker_cmd`):
 
 Copy `extensions/tasker/` to one of:
-- `<workspace>/.clawdbot/extensions/tasker/`
-- `~/.clawdbot/extensions/tasker/`
+- `<workspace>/.openclaw/extensions/tasker/`
+- `~/.openclaw/extensions/tasker/`
 
-3) Configure the Clawdbot plugin:
+Or install via the CLI (copy or link):
+
+```bash
+openclaw plugins install ./extensions/tasker
+openclaw plugins install -l ./extensions/tasker
+```
+
+3) Configure the OpenClaw plugin:
 
 ```json
 {
@@ -75,30 +93,44 @@ Copy `extensions/tasker/` to one of:
 }
 ```
 
-5) Install a skill profile (pick one) to:
+5) Install the unified skill to:
 - `<workspace>/skills/task/` (preferred)
-- `~/.clawdbot/skills/task/`
+- `~/.openclaw/skills/task/`
 
-Profiles:
-- Natural language: `skills/task/`
-- Slash-only (low-bloat): copy `skills/task-slash/` into your skills folder as `task/`
-- Optional helper: `./scripts/install-skill.sh --profile nl|slash`
+Skill:
+- Unified skill: `skills/task/`
+- Optional helper: `./scripts/install-skill.sh --dest ~/.openclaw/skills`
 
 Full docs:
-- `docs/CLAWDBOT_INTEGRATION.md`
+- `docs/OPENCLAW_INTEGRATION.md`
+- `docs/AGENT_WORKFLOW.md`
 - `docs/CLI_SPEC.md`
 - `docs/STORAGE_SPEC.md`
 - `docs/SECURITY.md`
 
-It is designed to integrate with **Clawdbot** via:
+It is designed to integrate with **OpenClaw** via:
 - a plugin tool (`tasker_cmd`) that safely spawns the `tasker` CLI with `shell:false`
-- a skill profile that maps natural language or `/task` to `tasker_cmd`
-  - Natural language: `skills/task/`
-  - Slash-only (low-bloat): copy `skills/task-slash/` into your skills folder as `task/`
+- a unified skill that maps natural language or `/task` to `tasker_cmd`
 
-Clawdbot helpers:
+OpenClaw helpers:
 - `TASKER_BIN=/path/to/tasker` (env fallback if binary is not on PATH)
-- `./scripts/install-skill.sh --profile nl|slash`
+- `./scripts/install-skill.sh --dest ~/.openclaw/skills`
+
+Explicit-only mode (optional):
+```json
+{
+  "agent": {
+    "require_explicit": true
+  }
+}
+```
+
+Workflow setup (optional):
+```bash
+tasker workflow init
+tasker workflow prompts init
+tasker workflow schedule init --window 24h --heartbeat-every 2h
+```
 
 ## Install
 
@@ -243,9 +275,9 @@ Everything lives under a root folder (default: `~/.tasker`):
 
 See `docs/STORAGE_SPEC.md`.
 
-## Clawdbot integration
+## OpenClaw integration
 
-See `docs/CLAWDBOT_INTEGRATION.md`.
+See `docs/OPENCLAW_INTEGRATION.md`.
 
 ## Contributing
 

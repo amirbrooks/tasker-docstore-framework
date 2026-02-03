@@ -33,6 +33,43 @@ Create root config and a default project (defaults to `Personal`).
 ### `tasker onboarding`
 Print quickstart instructions and common commands.
 
+### `tasker workflow init [--workspace <path>] [--file <name>] [--runs-dir <path>] [--templates-dir <path>] [--run-name <pattern>] [--heartbeat <cmd>] [--no-heartbeat] [--force]`
+Initialize workflow artifacts in an OpenClaw workspace and write a "Tasker Workflow" section
+to `management/tasker/workflow.md` (or the file passed via `--file`). The command writes templates
+into the workspace and records their paths in the workflow section.
+The `--file` path must resolve inside the workspace.
+
+Defaults:
+- Workspace: `~/.openclaw/workspace` (or `OPENCLAW_WORKSPACE`)
+- Runs dir: `management/RUNS`
+- Templates dir: `management/templates`
+- Run name: `YYYY-MM-DD-<short-name>`
+- Heartbeat commands:
+  - `tasker tasks --format telegram`
+  - `tasker week --days 7 --format telegram`
+
+### `tasker workflow prompts init [--workspace <path>] [--file <name>] [--prompts-dir <path>] [--night-shift <path>] [--proactive <path>] [--force]`
+Write prompt files into the workspace and add a "Tasker Prompts" section to
+`management/tasker/workflow.md` (or the file passed via `--file`).
+Prompt paths must resolve inside the workspace.
+
+Defaults:
+- Prompts dir: `management`
+- Night Shift: `management/NIGHT_SHIFT.md`
+- Proactive Operator: `management/PROACTIVE_OPERATOR.md`
+
+### `tasker workflow schedule init [--workspace <path>] [--file <name>] [--window <dur>] [--heartbeat-every <dur>] [--heartbeat-prompt <path>] [--night-shift <path>] [--nightly-cron <expr>] [--tz <tz>] [--no-heartbeat-prompt] [--no-nightly] [--heartbeat <cmd>] [--read <item>] [--force]`
+Write a "Tasker Schedule" section and an optional heartbeat prompt into the workspace.
+Prints example `openclaw cron add` commands, but does not execute them.
+Schedule paths must resolve inside the workspace.
+
+Defaults:
+- Window: `24h`
+- Heartbeat every: `2h`
+- Heartbeat prompt: `management/HEARTBEAT.md`
+- Night Shift prompt: `management/NIGHT_SHIFT.md`
+- Nightly cron: `0 23 * * *`
+
 ### `tasker config show`
 Print current config (defaults shown if config file is missing). Supports `--plain` and `--json` export.
 

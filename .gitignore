@@ -4,6 +4,7 @@ _demo_tasker/
 exports/
 *.log
 *.tmp
+ideatoexpand.md
 dist/
 node_modules/
 npm/node_modules/
